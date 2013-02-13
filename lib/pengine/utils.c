@@ -1210,20 +1210,24 @@ resource_node_score(resource_t *rsc, node_t *node, int score, const char *tag)
 	}
 	match->weight = merge_weights(match->weight, score);
 }
-
+/* リソース配置ノード情報((allowed_nodes)への重み(weight)へのスコア加算処理 */
 void
 resource_location(resource_t *rsc, node_t *node, int score, const char *tag,
 		  pe_working_set_t *data_set) 
 {
 	if(node != NULL) {
+		/* ノードが指定されている場合は、リソースの配置ノード情報(allowed_nodes)にそのノード情報を追加し、ノード情報の重み(weight)にスコアを加算 */
 		resource_node_score(rsc, node, score, tag);
 
 	} else if(data_set != NULL) {
+		/* data_setが指定されている場合は、data_set内の全てのノード情報リストを処理する */
 		slist_iter(
 			node, node_t, data_set->nodes, lpc,
+			/* リソースの配置ノード情報(allowed_nodes)にノード情報を追加し、ノード情報の重み(weight)にスコアを加算 */
 			resource_node_score(rsc, node, score, tag);
 			);
 	} else {
+		/* ノードも、data_setも指定されていない場合は、リソースの全ての配置ノード情報(allowed_nodes)にスコアを加算 */
 		slist_iter(
 			node, node_t, rsc->allowed_nodes, lpc,
 			resource_node_score(rsc, node, score, tag);
@@ -1232,6 +1236,9 @@ resource_location(resource_t *rsc, node_t *node, int score, const char *tag,
 
 	if(node == NULL && score == -INFINITY) {
 		if(rsc->allocated_to) {
+			/* ノードが未指定で、スコアが-INFINITY（配置不可)の場合で、リソースの配置先ノード(allocated_to)がNULLでない場合は */
+			/* 情報ログを出力し、リソースの配置先ノード(allocated_to)をNULLでクリアする */
+			/* これにより配置先として処理されない */
 			crm_info("Deallocating %s from %s", rsc->id, rsc->allocated_to->details->uname);
 			crm_free(rsc->allocated_to);
 			rsc->allocated_to = NULL;
@@ -1475,39 +1482,45 @@ int get_failcount(node_t *node, resource_t *rsc, int *last_failure, pe_working_s
     crm_free(search.key);
     return search.count;
 }
-
+/* リソースの"target-role"属性をroleへの反映処理 */
 gboolean get_target_role(resource_t *rsc, enum rsc_role_e *role) 
 {
     enum rsc_role_e local_role = RSC_ROLE_UNKNOWN;
+    /* リソースのmetaハッシュテーブルから"target-role"値を取り出す.roleがNULLの場合はFALSEでリターン */
     const char *value = g_hash_table_lookup(rsc->meta, XML_RSC_ATTR_TARGET_ROLE);
     CRM_CHECK(role != NULL, return FALSE);
     
     if(value == NULL
        || safe_str_eq("started", value)
        || safe_str_eq("default", value)) {
+		/* "target-role"値がNULLか、"started"か"default"ならFLASEでリターン */
 	return FALSE;
     }
-
+	/* target-role"値をlocal_roleに変換 */
     local_role = text2role(value);
     if(local_role == RSC_ROLE_UNKNOWN) {
+		/* RSC_ROLE_UNKNOWNに変換された場合は、エラーログを出力してFALSEでリターン */
 	crm_config_err("%s: Unknown value for %s: %s",
 		       rsc->id, XML_RSC_ATTR_TARGET_ROLE, value);
 	return FALSE;
 
     } else if(local_role > RSC_ROLE_STARTED) {
-	if(uber_parent(rsc)->variant == pe_master) {
-	    if(local_role > RSC_ROLE_SLAVE) {
-		/* This is what we'd do anyway, just leave the default to avoid messing up the placement algorithm */
-		return FALSE;
-	    }
+		/* RSC_ROLE_SLAVE,RSC_ROLE_MASTERの場合(RSC_ROLE_STARTED以上)	*/
+		if(uber_parent(rsc)->variant == pe_master) {
+			/* 親リソースがMASTERリソースの場合で、RSC_ROLE_MASTER(RSC_ROLE_SLAVE以上)の場合は、FALSEでリターン */
+	    	if(local_role > RSC_ROLE_SLAVE) {
+				/* This is what we'd do anyway, just leave the default to avoid messing up the placement algorithm */
+				return FALSE;
+	    	}
 	    
-	} else {
+		} else {
+		/* 親リソースがMASTERリソースでない場合は、エラーログを出力してFALSEでリターン */
 	    crm_config_err("%s is not part of a master/slave resource, a %s of '%s' makes no sense",
 			   rsc->id, XML_RSC_ATTR_TARGET_ROLE, value);
 	    return FALSE;
-	}
+		}
     }
-    
+    /* 取得した"target-role"値のroleを引数に反映する */
     *role = local_role;
     return TRUE;
 }

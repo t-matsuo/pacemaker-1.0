@@ -587,7 +587,9 @@ common_apply_stickiness(resource_t *rsc, node_t *node, pe_working_set_t *data_se
 
 static void complex_set_cmds(resource_t *rsc)
 {
+	/* リソースのcmds処理にresource_class_alloc_functionsへのポインタをセットする 	*/
     rsc->cmds = &resource_class_alloc_functions[rsc->variant];
+    /* 対象リソースの子リソースも全て、complex_set_cmds()処理を実行し、子リソースのcmds処理をセットする */
     slist_iter(
 	child_rsc, resource_t, rsc->children, lpc,
 	complex_set_cmds(child_rsc);
@@ -597,6 +599,7 @@ static void complex_set_cmds(resource_t *rsc)
 void
 set_alloc_actions(pe_working_set_t *data_set) 
 {
+	/* 全てのresoucecsリストのデータにcomplex_set_cmds()処理を実行する */
 	slist_iter(
 		rsc, resource_t, data_set->resources, lpc,
 		complex_set_cmds(rsc);
@@ -714,11 +717,12 @@ stage0(pe_working_set_t *data_set)
 	if(data_set->input == NULL) {
 		return FALSE;
 	}
-
+	/* 受信したxmlのcrm_config,nodes,resources,statusノードを展開する */
 	cluster_status(data_set);
-	
+	/* 全てのリソースの実行コマンド関数(cmds)をリソースタイプ毎にセットする */
 	set_alloc_actions(data_set);
 	apply_system_health(data_set);
+	/* 受信したxmlのconstraintsノードを展開する */
 	unpack_constraints(cib_constraints, data_set);
 	
 	return TRUE;

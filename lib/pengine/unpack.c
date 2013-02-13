@@ -1320,16 +1320,17 @@ unpack_lrm_rsc_state(
 	saved_role = rsc->role;
 	on_fail = action_fail_ignore;
 	rsc->role = RSC_ROLE_UNKNOWN;
+	/* op_list(lrm_rsc_opノードの)リストを時系列でソートする */
 	sorted_op_list = g_list_sort(op_list, sort_op_by_callid);
-	
+	/* ソートしたlrm_rsc_opノードのリストを全て処理する */
 	slist_iter(
 		rsc_op, xmlNode, sorted_op_list, lpc,
-
+		/* lrm_rsc_opノードのoperation属性を取り出す */
 		task = crm_element_value(rsc_op, XML_LRM_ATTR_TASK);
 		if(safe_str_eq(task, CRMD_ACTION_MIGRATED)) {
 			migrate_op = rsc_op;
 		}
-		
+		/* lrm_rsc_opノードを展開する */
 		unpack_rsc_op(rsc, node, rsc_op, &on_fail, data_set);
 		);
 
@@ -1389,7 +1390,7 @@ static void set_active(resource_t *rsc)
 	rsc->role = RSC_ROLE_STARTED;
     }
 }
-
+/* lrm_rsc_opノードを展開 */
 gboolean
 unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 	      enum action_fail_response *on_fail, pe_working_set_t *data_set) 
@@ -1465,6 +1466,7 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 	interval = crm_parse_int(interval_s, "0");
 	
 	if(interval == 0 && safe_str_eq(task, CRMD_ACTION_STATUS)) {
+		/* intervalが0で、taskが"monitor"の場合は、Probe済みのフラグをセットする */
 		is_probe = TRUE;
 	}
 	
