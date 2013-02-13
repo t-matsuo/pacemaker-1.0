@@ -245,7 +245,7 @@ set_working_set_defaults(pe_working_set_t *data_set)
 	set_bit_inplace(data_set->flags, pe_flag_stop_action_orphans);	
 }
 
-
+/* リストからのリソースid検索処理 */
 resource_t *
 pe_find_resource(GListPtr rsc_list, const char *id)
 {
@@ -254,17 +254,20 @@ pe_find_resource(GListPtr rsc_list, const char *id)
 	resource_t *match = NULL;
 
 	if(id == NULL) {
+		/* idがNULLの場合は処理しない */
 		return NULL;
 	}
-	
+	/* 全ての対象リストを処理する */
 	for(lpc = 0; lpc < g_list_length(rsc_list); lpc++) {
 		rsc = g_list_nth_data(rsc_list, lpc);
 
 		match = rsc->fns->find_rsc(rsc, id, NULL, pe_find_renamed|pe_find_current);
 		if(match != NULL) {
+			/* リストにリソースが存在した */
 			return match;
 		}
 	}
+	/* リストにリソースが存在しない */
 	crm_debug_2("No match for %s", id);
 	return NULL;
 }

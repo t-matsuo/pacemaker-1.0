@@ -380,15 +380,18 @@ unpack_status(xmlNode * status, pe_working_set_t *data_set)
 		/* Mark the node as provisionally clean
 		 * - at least we have seen it in the current cluster's lifetime
 		 */
+		/* ノード情報のuncleanをFALSEに設定する */
 		this_node->details->unclean = FALSE;
+		/* ノード属性情報のハッシュテーブル(node->details->attrs)への追加処理 */
 		add_node_attrs(attrs, this_node, TRUE, data_set);
 
 		if(crm_is_true(g_hash_table_lookup(this_node->details->attrs, "standby"))) {
+			/* ノード属性情報の"standby"値がtrueの場合は、standbyをTRUEに設定する */
 			crm_info("Node %s is in standby-mode",
 				 this_node->details->uname);
 			this_node->details->standby = TRUE;
 		}
-		
+		/* ノードの状態を決定する */
 		crm_debug_3("determining node state");
 		determine_online_status(node_state, this_node, data_set);
 
@@ -405,20 +408,26 @@ unpack_status(xmlNode * status, pe_working_set_t *data_set)
 	 * But, for now, only process healthy nodes
 	 *  - this is necessary for the logic in bug lf#2508 to function correctly 
 	 */	
+	/* onlineノードの"lrm_resources"ノードを処理する為に、statusノードの全てのnode_stateノードを処理する */
 	xml_child_iter_filter(
 		status, node_state, XML_CIB_TAG_STATE,
-
+		/* node_stateノードのid属性を取得する */
 		id = crm_element_value(node_state, XML_ATTR_ID);
+		/* data_set->nodesリストからidで検索し、ノード情報のポインタを取得する */
 		this_node = pe_find_node_id(data_set->nodes, id);
 		
 		if(this_node == NULL) {
+			/* ノード情報が存在しない場合は処理しない */
 			crm_info("Node %s is unknown", id);
 			continue;
 			
 		} else if(this_node->details->online) {
 			crm_debug_3("Processing lrm resource entries on healthy node: %s", this_node->details->uname);
+			/* node_stateノード内の"lrm"ノードのポインタを取得する */
 			lrm_rsc = find_xml_node(node_state, XML_CIB_TAG_LRM, FALSE);
+			/* 取得した"lrm"ノードから、"lrm_resources"ノードのポインタを取得する */
 			lrm_rsc = find_xml_node(lrm_rsc, XML_LRM_TAG_RESOURCES, FALSE);
+			/* "lrm_resources"ノードの情報をノード情報に展開する */
 			unpack_lrm_resources(this_node, lrm_rsc, data_set);
 		}
 		);
@@ -429,23 +438,30 @@ unpack_status(xmlNode * status, pe_working_set_t *data_set)
 	 * Only when stonith is enabled do we need to know what is on the node to
 	 * ensure rsc start events happen after the stonith
 	 */
+	/* 非onlineノードの"lrm_resources"ノードを処理する為に、statusノードの全てのnode_stateノードを処理する */
 	xml_child_iter_filter(
 		status, node_state, XML_CIB_TAG_STATE,
 
 		if(!is_set(data_set->flags, pe_flag_stonith_enabled)) {
+			/* stonith無しの場合は処理しない */
 			break;
 		}
-
+		/* node_stateノードのid属性を取得する */
 		id = crm_element_value(node_state, XML_ATTR_ID);
+		/* data_set->nodesリストからidで検索し、ノード情報のポインタを取得する */
 		this_node = pe_find_node_id(data_set->nodes, id);
 		
 		if(this_node == NULL || this_node->details->online) {
+			/* ノード情報が存在しないか、online状態でない場合は処理しない */
 			continue;
 			
 		} else {
 			crm_debug_3("Processing lrm resource entries on unhealthy node: %s", this_node->details->uname);
+			/* node_stateノード内の"lrm"ノードのポインタを取得する */
 			lrm_rsc = find_xml_node(node_state, XML_CIB_TAG_LRM, FALSE);
+			/* 取得した"lrm"ノードから、"lrm_resources"ノードのポインタを取得する */
 			lrm_rsc = find_xml_node(lrm_rsc, XML_LRM_TAG_RESOURCES, FALSE);
+			/* "lrm_resources"ノードの情報をノード情報に展開する */
 			unpack_lrm_resources(this_node, lrm_rsc, data_set);
 		}
 		);
@@ -453,7 +469,7 @@ unpack_status(xmlNode * status, pe_working_set_t *data_set)
 	return TRUE;
 	
 }
-
+/* stonith無しの場合の処理 */
 static gboolean
 determine_online_status_no_fencing(pe_working_set_t *data_set, xmlNode * node_state, node_t *this_node)
 {
@@ -497,7 +513,7 @@ determine_online_status_no_fencing(pe_working_set_t *data_set, xmlNode * node_st
 	}
 	return online;
 }
-
+/* stonithありの場合の処理 */
 static gboolean
 determine_online_status_fencing(pe_working_set_t *data_set, xmlNode * node_state, node_t *this_node)
 {
@@ -627,7 +643,7 @@ determine_online_status_fencing(pe_working_set_t *data_set, xmlNode * node_state
 	}
 	return online;
 }
-
+/* ノードの状態を決定する */
 gboolean
 determine_online_status(
 	xmlNode * node_state, node_t *this_node, pe_working_set_t *data_set)
@@ -653,10 +669,12 @@ determine_online_status(
 	}
 	
 	if(is_set(data_set->flags, pe_flag_stonith_enabled) == FALSE) {
+		/* stonith有りの場合 */
 		online = determine_online_status_no_fencing(
 		    data_set, node_state, this_node);
 		
 	} else {
+		/* stonith無しの場合 */
 		online = determine_online_status_fencing(
 		    data_set, node_state, this_node);
 	}
@@ -975,7 +993,7 @@ static resource_t *find_clone(pe_working_set_t *data_set, node_t *node, resource
     crm_free(base);
     return rsc;
 }
-
+/* 対象リソースがresourcesノードに存在し、data_setに展開されているかどうかの検索 */
 static resource_t *
 unpack_find_resource(
 	pe_working_set_t *data_set, node_t *node, const char *rsc_id, xmlNode *rsc_entry)
@@ -985,7 +1003,7 @@ unpack_find_resource(
 	char *alt_rsc_id = crm_strdup(rsc_id);
 	
 	crm_debug_2("looking for %s", rsc_id);
-		
+	/* data_set->resourcesリストから対象リソースを検索する */
 	rsc = pe_find_resource(data_set->resources, alt_rsc_id);
 	/* no match */
 	if(rsc == NULL) {
@@ -998,10 +1016,12 @@ unpack_find_resource(
 	    crm_debug_2("%s not found: %s", alt_rsc_id, clone_parent?clone_parent->id:"orphan");
 
 	} else {
+		/* リソースが存在する場合は、リソースの親リソースを検索 */
 	    clone_parent = uber_parent(rsc);
 	}
 
 	if(clone_parent && clone_parent->variant > pe_group) {
+		/* 親リソースが存在して、親リソースがmasterかcloneの場合は、クローンリソースを検索する */
 	    rsc = find_clone(data_set, node, clone_parent, rsc_id);
 	    CRM_ASSERT(rsc != NULL);
 	}
@@ -1247,7 +1267,7 @@ calculate_active_ops(GListPtr sorted_op_list, int *start_index, int *stop_index)
 	}
 }
 
-	
+/* lrm_resourceノード展開 */
 static void
 unpack_lrm_rsc_state(
 	node_t *node, xmlNode * rsc_entry, pe_working_set_t *data_set)
@@ -1255,7 +1275,7 @@ unpack_lrm_rsc_state(
 	int stop_index = -1;
 	int start_index = -1;
 	enum rsc_role_e req_role = RSC_ROLE_UNKNOWN;
-
+	/* lrm_resourceノードのid属性から対象リソースidをセットする */
 	const char *task = NULL;
 	const char *rsc_id  = crm_element_value(rsc_entry, XML_ATTR_ID);
 
@@ -1274,20 +1294,24 @@ unpack_lrm_rsc_state(
 	/* extract operations */
 	op_list = NULL;
 	sorted_op_list = NULL;
-		
+	/* 対象のlrm_resourceノード内の全てのlrm_rsc_opノードを処理する */
 	xml_child_iter_filter(
 		rsc_entry, rsc_op, XML_LRM_TAG_RSC_OP,
+		/* op_listに１つのlrm_rsc_opノードを追加する */
 		op_list = g_list_append(op_list, rsc_op);
 		);
 
 	if(op_list == NULL) {
+		/* op_listが存在しない場合は処理を抜ける */
 		/* if there are no operations, there is nothing to do */
 		return;
 	}
 
 	/* find the resource */
+	/* 対象リソースがresourcesノードに存在し、data_setに展開されているかどうかの検索する */
 	rsc = unpack_find_resource(data_set, node, rsc_id, rsc_entry);
 	if(rsc == NULL) {
+		/* data_setのresourcesノードに存在しない場合は、孤立リソースとして処理する */
 		rsc = process_orphan_resource(rsc_entry, node, data_set);
 	} 
 	CRM_ASSERT(rsc != NULL);
@@ -1339,16 +1363,17 @@ unpack_lrm_rsc_state(
 		rsc->role = saved_role;
 	}
 }
-
+/* "lrm_resources"ノードの情報展開 */
 gboolean
 unpack_lrm_resources(node_t *node, xmlNode * lrm_rsc_list, pe_working_set_t *data_set)
 {
 	CRM_CHECK(node != NULL, return FALSE);
 
 	crm_debug_3("Unpacking resources on %s", node->details->uname);
-
+	/* "lrm_resources"ノード内の全てのlrm_resourceノードを処理する */
 	xml_child_iter_filter(
 		lrm_rsc_list, rsc_entry, XML_LRM_TAG_RESOURCE,
+		/* １つのlrm_resourceノードを展開する */
 		unpack_lrm_rsc_state(node, rsc_entry, data_set);
 		);
 	
@@ -1772,7 +1797,7 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 	
 	return TRUE;
 }
-
+/* ノード属性情報のハッシュテーブル(node->details->attrs)への追加処理 */
 gboolean
 add_node_attrs(xmlNode *xml_obj, node_t *node, gboolean overwrite, pe_working_set_t *data_set)
 {
