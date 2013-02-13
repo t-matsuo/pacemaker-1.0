@@ -73,7 +73,7 @@ static void pe_connection_destroy(gpointer user_data)
 {
     return;
 }
-
+/* クライアント接続コールバック */
 static gboolean
 pe_client_connect(IPC_Channel *client, gpointer user_data)
 {
@@ -87,6 +87,7 @@ pe_client_connect(IPC_Channel *client, gpointer user_data)
     } else {
 	client->ops->set_recv_qlen(client, 1024);
 	client->ops->set_send_qlen(client, 1024);
+	/* メッセージコールバックのセット */
 	G_main_add_IPC_Channel(
 	    G_PRIORITY_LOW, client, FALSE, pe_msg_callback, NULL, pe_connection_destroy);
     }

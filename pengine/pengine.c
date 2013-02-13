@@ -229,6 +229,7 @@ process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 	crm_err("Exiting: stage %d", stage);				\
 	exit(1);
 
+/* 状態遷移の計算処理 */
 xmlNode *
 do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 {
