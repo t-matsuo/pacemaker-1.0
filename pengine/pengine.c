@@ -57,11 +57,12 @@ series_t series[] = {
 	{ 0, "pe-warn",    "pe-warn-series-max", 200 },
 	{ 0, "pe-input",   "pe-input-series-max", 400 },
 };
-
+/* メッセージ処理 */
 gboolean
 process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 {
 	gboolean send_via_disk = FALSE;
+	/* 受信メッセージから、宛先(sys_to),操作(op),参照(ref)メンバーを取り出す */
 	const char *sys_to = crm_element_value(msg, F_CRM_SYS_TO);
 	const char *op = crm_element_value(msg, F_CRM_TASK);
 	const char *ref = crm_element_value(msg, XML_ATTR_REFERENCE);
@@ -79,10 +80,12 @@ process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 		/* ignore */
 		
 	} else if(sys_to == NULL || strcasecmp(sys_to, CRM_SYSTEM_PENGINE) != 0) {
+		/* pengineが宛先でないかNULLの場合は、処理しない */
 		crm_debug_3("Bad sys-to %s", crm_str(sys_to));
 		return FALSE;
 		
 	} else if(strcasecmp(op, CRM_OP_PECALC) == 0) {
+		/* opメンバーがCRM_OP_PECALC(pengineへの状態遷移計算依頼)の場合 */
 		int seq = -1;
 		int series_id = 0;
 		int series_wrap = 0;
@@ -107,17 +110,18 @@ process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 
 		graph_file = crm_strdup(CRM_STATE_DIR"/graph.XXXXXX");
 		graph_file = mktemp(graph_file);
-
+		/* 受信データ(cib)を処理用に移送する */
 		converted = copy_xml(xml_data);
 		if(cli_config_update(&converted, NULL, TRUE) == FALSE) {
 		    set_working_set_defaults(&data_set);
 		    data_set.graph = create_xml_node(NULL, XML_TAG_GRAPH);
 		    crm_xml_add_int(data_set.graph, "transition_id", 0);
 		    crm_xml_add_int(data_set.graph, "cluster-delay", 0);
-		    process = FALSE;
+		    process = FALSE;	/* 計算処理しない */
 		}
 
 		if(process) {
+			/* 処理対象の場合は、状態遷移を計算する */
 		    do_calculations(&data_set, converted, NULL);
 		}
 		
@@ -140,6 +144,7 @@ process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 		seq = get_last_sequence(PE_STATE_DIR, series[series_id].name);	
 		
 		data_set.input = NULL;
+		/* 計算結果のグラフから応答メッセージを作成する */
 		reply = create_reply(msg, data_set.graph);
 		CRM_ASSERT(reply != NULL);
 
@@ -150,7 +155,7 @@ process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 		crm_xml_add_int(reply, "graph-warnings", was_processing_warning);
 		crm_xml_add_int(reply, "config-errors", crm_config_error);
 		crm_xml_add_int(reply, "config-warnings", crm_config_warning);
-
+		/* 応答メッセージを送信する */
 		if(send_ipc_message(sender, reply) == FALSE) {
 		    if(sender && sender->ops->get_chan_status(sender) == IPC_CONNECT) {
 			send_via_disk = TRUE;
@@ -163,8 +168,9 @@ process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 			crm_info("Peer disconnected, discarding transition graph");
 		    }
 		}
-		
+		/* 応答メッセージの解放 */
 		free_xml(reply);
+		/* 作業エリアのクリーンアップ */
 		cleanup_alloc_calculations(&data_set);
 
 		if(series_wrap != 0) {
@@ -172,7 +178,7 @@ process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 		    write_last_sequence(PE_STATE_DIR, series[series_id].name,
 					seq+1, series_wrap);
 		}
-		
+		/* 処理結果のログを出力する */
 		if(was_processing_error) {
 			crm_err("Transition %d:"
 				" ERRORs found during PE processing."
@@ -198,12 +204,14 @@ process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender)
 			crm_info("Configuration WARNINGs found during PE processing."
 				 "  Please run \"crm_verify -L\" to identify issues.");
 		}
-
+		
 		if(send_via_disk) {
+			/* 送信できずに計算した状態遷移をディスク保存した場合は、応答メッセージに保存ファイル名をセットする */
 			reply = create_reply(msg, NULL);
 			crm_xml_add(reply, F_CRM_TGRAPH, graph_file);
 			crm_xml_add(reply, F_CRM_TGRAPH_INPUT, filename);
 			CRM_ASSERT(reply != NULL);
+			/* 保存ファイル名の応答メッセージを送信する */
 			if(send_ipc_message(sender, reply) == FALSE) {
 				crm_err("Answer could not be sent");
 			}
@@ -235,7 +243,9 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 {
 	int rsc_log_level = LOG_NOTICE;
 /*	pe_debug_on(); */
+	/* デフォルト値をセットする */
 	set_working_set_defaults(data_set);
+	/* 受信したcibデータのxml情報などをdata_setにセットする */
 	data_set->input = xml_input;
 	data_set->now = now;
 	if(data_set->now == NULL) {
@@ -246,13 +256,14 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 	check_and_exit(-1);
 #endif
 	
-	crm_debug_5("unpack constraints");		  
+	crm_debug_5("unpack constraints");
+	/* ステージ０処理 */		  
 	stage0(data_set);
 	
 #if MEMCHECK_STAGE_0
 	check_and_exit(0);
 #endif
-
+	/* 展開された全てのリソースでpe_rsc_orphanリソースがあって、停止状態でない場合は、ログに出力する */
 	slist_iter(rsc, resource_t, data_set->resources, lpc,
 		   if(is_set(rsc->flags, pe_rsc_orphan)
 		      && rsc->role == RSC_ROLE_STOPPED) {
@@ -267,6 +278,7 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 #endif
 
 	crm_debug_5("color resources");
+	/* ステージ２処理 */
 	stage2(data_set);
 
 #if MEMCHECK_STAGE_2
@@ -274,6 +286,7 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 #endif
 
 	/* unused */
+	/* ステージ３処理 */
 	stage3(data_set);
 
 #if MEMCHECK_STAGE_3
@@ -281,6 +294,7 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 #endif
 	
 	crm_debug_5("assign nodes to colors");
+	/* ステージ４処理 */
 	stage4(data_set);	
 	
 #if MEMCHECK_STAGE_4
@@ -288,6 +302,7 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 #endif
 
 	crm_debug_5("creating actions and internal ording constraints");
+	/* ステージ５処理 */
 	stage5(data_set);
 
 #if MEMCHECK_STAGE_5
@@ -295,6 +310,7 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 #endif
 	
 	crm_debug_5("processing fencing and shutdown cases");
+	/* ステージ６処理 */
 	stage6(data_set);
 	
 #if MEMCHECK_STAGE_6
@@ -302,6 +318,7 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 #endif
 
 	crm_debug_5("applying ordering constraints");
+	/* ステージ７処理 */
 	stage7(data_set);
 
 #if MEMCHECK_STAGE_7
@@ -309,6 +326,7 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 #endif
 
 	crm_debug_5("creating transition graph");
+	/* ステージ８処理 */
 	stage8(data_set);
 
 #if MEMCHECK_STAGE_8

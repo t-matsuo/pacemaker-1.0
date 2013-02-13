@@ -58,20 +58,21 @@ static void pe_fence_node(pe_working_set_t *data_set, node_t *node, const char *
     node->details->unclean = TRUE;
 }
 
-
+/* crm_configノードの展開処理 */
 gboolean
 unpack_config(xmlNode *config, pe_working_set_t *data_set)
 {
 	const char *value = NULL;
+	/* config_hashハッシュテーブルを生成して、data_setにセットする */
 	GHashTable *config_hash = g_hash_table_new_full(
 		g_str_hash,g_str_equal, g_hash_destroy_str,g_hash_destroy_str);
 
 	data_set->config_hash = config_hash;
-
+	/* crm_configノード内のcluster_property_setノードの値を、configu_hashにセットする */
 	unpack_instance_attributes(
 		data_set->input, config, XML_CIB_TAG_PROPSET, NULL, config_hash,
 		CIB_OPTIONS_FIRST, FALSE, data_set->now);
-
+	/* 展開したconfig_hashをverifyする */
 	verify_pe_options(data_set->config_hash);
 	
 	value = pe_pref(data_set->config_hash, "stonith-timeout");
@@ -182,7 +183,7 @@ unpack_config(xmlNode *config, pe_working_set_t *data_set)
 	
 	return TRUE;
 }
-
+/* nodesノードの展開処理 */
 gboolean
 unpack_nodes(xmlNode * xml_nodes, pe_working_set_t *data_set)
 {
@@ -191,42 +192,47 @@ unpack_nodes(xmlNode * xml_nodes, pe_working_set_t *data_set)
 	const char *uname  = NULL;
 	const char *type   = NULL;
 	gboolean unseen_are_unclean = TRUE;
+	/* crm_configノード展開セットされたconfig_hashハッシュテーブルから、"startup-fencing"値を取り出す */
 	const char *blind_faith = pe_pref(
 		data_set->config_hash, "startup-fencing");
 	
 	if(crm_is_true(blind_faith) == FALSE) {
+		/* startup-fencing値がFALSEの場合は、unseen_are_uncleanをFALSEにセットし、警告ログを出力する */
 		unseen_are_unclean = FALSE;
 		crm_warn("Blind faith: not fencing unseen nodes");
 	}
-
+	/* 全てのnodesノード内のnodeノードを処理する */
 	xml_child_iter_filter(
 		xml_nodes, xml_obj, XML_CIB_TAG_NODE,
 
 		new_node = NULL;
-
+		/* nodeノードのid属性,uname属性,type属性を取得する */
 		id     = crm_element_value(xml_obj, XML_ATTR_ID);
 		uname  = crm_element_value(xml_obj, XML_ATTR_UNAME);
 		type   = crm_element_value(xml_obj, XML_ATTR_TYPE);
 		crm_debug_3("Processing node %s/%s", uname, id);
 
 		if(id == NULL) {
+			/* idがNULLの場合は、エラーログを出力し該当ノードは処理しない */
 			crm_config_err("Must specify id tag in <node>");
 			continue;
 		}
 		if(type == NULL) {
+			/* typeがNULLの場合は、エラーログを出力し該当ノードは処理しない */
 			crm_config_err("Must specify type tag in <node>");
 			continue;
 		}
 		if(pe_find_node(data_set->nodes, uname) != NULL) {
+			/* data_set->nodesに既に存在するノード(uname)の場合は、警告メッセージを出力する */
 		    crm_config_warn("Detected multiple node entries with uname=%s"
 				    " - this is rarely intended", uname);
 		}
-
+		/* ノード情報エリアを確保する */
 		crm_malloc0(new_node, sizeof(node_t));
 		if(new_node == NULL) {
-			return FALSE;
+			return FALSE;	/* 確保出来ない場合は処理を終了する */
 		}
-		
+		/* ノード情報エリアのweight,fixedを初期化し、detailsエリアを確保する */
 		new_node->weight = 0;
 		new_node->fixed  = FALSE;
 		crm_malloc0(new_node->details,
@@ -234,9 +240,10 @@ unpack_nodes(xmlNode * xml_nodes, pe_working_set_t *data_set)
 
 		if(new_node->details == NULL) {
 			crm_free(new_node);
-			return FALSE;
+			return FALSE;	/* 確保出来ない場合は処理を終了する */
 		}
-
+		/* ノード情報エリアに展開したid,unameとtype=node_ping,online=FALSE,shutdown=FALSE,稼動中のリソース(runnning_rsc)=NULL */
+		/* をセットし、attrsハッシュテーブルを新規生成してセットする */
 		crm_debug_3("Creaing node for entry %s/%s", uname, id);
 		new_node->details->id		= id;
 		new_node->details->uname	= uname;
@@ -256,22 +263,26 @@ unpack_nodes(xmlNode * xml_nodes, pe_working_set_t *data_set)
 		
 		if(is_set(data_set->flags, pe_flag_stonith_enabled) == FALSE || unseen_are_unclean == FALSE) {
 			/* blind faith... */
+			/* stonith-enabledがFALSEか、startup-fencingがFALSE(unseen_are_unclean)の場合は、uncleanをFALSEにセットする */
 			new_node->details->unclean = FALSE; 
 
 		} else {
 			/* all nodes are unclean until we've seen their
 			 * status entry
 			 */
+			/* その他の場合は、ノード情報をunclean(TRUE)でセットする */
 			new_node->details->unclean = TRUE;
 		}
 		
 		if(type == NULL
 		   || safe_str_eq(type, "member")
 		   || safe_str_eq(type, NORMALNODE)) {
+			/* 取得したtypeがNULLか、memberか、normalの場合は、typeにnode_memberをセットする */
 			new_node->details->type = node_member;
 		}
-
+		/* ノード情報のattrハッシュテーブルに属性を展開する */
 		add_node_attrs(xml_obj, new_node, FALSE, data_set);
+		/* 処理したnodeノードのノード情報をdata_set->nodesリストに追加する */
 		data_set->nodes = g_list_append(data_set->nodes, new_node);    
 		crm_debug_3("Done with node %s",
 			    crm_element_value(xml_obj, XML_ATTR_UNAME));
@@ -279,23 +290,27 @@ unpack_nodes(xmlNode * xml_nodes, pe_working_set_t *data_set)
   
 	return TRUE;
 }
-
+/* resourcesノードの展開処理 */
 gboolean 
 unpack_resources(xmlNode * xml_resources, pe_working_set_t *data_set)
 {
+	/* resourcesノードの全ての内容を処理する */
 	xml_child_iter(
 		xml_resources, xml_obj, 
 
 		resource_t *new_rsc = NULL;
 		crm_debug_3("Beginning unpack... <%s id=%s... >",
 			    crm_element_name(xml_obj), ID(xml_obj));
+		/* 共通展開処理を実行する */
 		if(common_unpack(xml_obj, &new_rsc, NULL, data_set)) {
+			/* 展開したリソース情報をdata_set->resourcesリストに追加する */
 			data_set->resources = g_list_append(
 				data_set->resources, new_rsc);
-			
+			/* リソース展開結果をログに出力 */
 			print_resource(LOG_DEBUG_3, "Added", new_rsc, FALSE);
 
 		} else {
+			/* 展開処理に失敗した場合はエラーをログを出力し、展開したリソースを解放する */
 			crm_config_err("Failed unpacking %s %s",
 				      crm_element_name(xml_obj),
 				      crm_element_value(xml_obj, XML_ATTR_ID));
@@ -304,11 +319,12 @@ unpack_resources(xmlNode * xml_resources, pe_working_set_t *data_set)
 			}
 		}
 		);
-	
+	/* 全てのresourcesノードが処理が終わったら、priorityに応じて、data_set->resourceリストをソートする */
 	data_set->resources = g_list_sort(
 		data_set->resources, sort_rsc_priority);
 
 	if(is_set(data_set->flags, pe_flag_stonith_enabled) && is_set(data_set->flags, pe_flag_have_stonith_resource) == FALSE) {
+		/* stonith-enabled=trueであるにも関わらず、stonithリソースが存在しない場合は、エラーログを出力する */
 	    crm_config_err("Resource start-up disabled since no STONITH resources have been defined");
 	    crm_config_err("Either configure some or disable STONITH with the stonith-enabled option");
 	    crm_config_err("NOTE: Clusters with shared data need STONITH to ensure data integrity");
@@ -321,6 +337,7 @@ unpack_resources(xmlNode * xml_resources, pe_working_set_t *data_set)
 /* remove nodes that are down, stopping */
 /* create +ve rsc_to_node constraints between resources and the nodes they are running on */
 /* anything else? */
+/* statusノードの展開処理 */
 gboolean
 unpack_status(xmlNode * status, pe_working_set_t *data_set)
 {
@@ -330,20 +347,23 @@ unpack_status(xmlNode * status, pe_working_set_t *data_set)
 	xmlNode * lrm_rsc    = NULL;
 	xmlNode * attrs      = NULL;
 	node_t    *this_node  = NULL;
-	
+	/* statusノードの全てのnode_stateノードを処理する */
 	crm_debug_3("Beginning unpack");
 	xml_child_iter_filter(
 		status, node_state, XML_CIB_TAG_STATE,
-
+		/* node_stateノードのid属性、uname属性を取得する */
 		id    = crm_element_value(node_state, XML_ATTR_ID);
 		uname = crm_element_value(node_state,    XML_ATTR_UNAME);
+		/* node_stateノード内の"transient_attributes"ノードのポインタを取得する */
 		attrs = find_xml_node(
 			node_state, XML_TAG_TRANSIENT_NODEATTRS, FALSE);
-
+		/* node_stateノード内の"lrm"ノードのポインタを取得する */
 		lrm_rsc = find_xml_node(node_state, XML_CIB_TAG_LRM, FALSE);
+		/* 取得した"lrm"ノードから、"lrm_resources"ノードのポインタを取得する */
 		lrm_rsc = find_xml_node(lrm_rsc, XML_LRM_TAG_RESOURCES, FALSE);
 
 		crm_debug_3("Processing node %s", uname);
+		/* data_set->nodesリストからidで検索し、ノード情報のポインタを取得する */
 		this_node = pe_find_node_id(data_set->nodes, id);
 
 		if(uname == NULL) {
@@ -351,6 +371,7 @@ unpack_status(xmlNode * status, pe_working_set_t *data_set)
 			continue;
 
 		} else if(this_node == NULL) {
+			/* nodes情報から展開されていないノードの情報の場合は警告ログを出力し処理しない */
 			crm_config_warn("Node %s in status section no longer exists",
 				       uname);
 			continue;

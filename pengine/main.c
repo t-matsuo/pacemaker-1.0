@@ -43,6 +43,7 @@ void usage(const char* cmd, int exit_status);
 void pengine_shutdown(int nsig);
 extern gboolean process_pe_message(xmlNode *msg, xmlNode *xml_data, IPC_Channel *sender);
 
+/* メッセージコールバック */
 static gboolean
 pe_msg_callback(IPC_Channel *client, gpointer user_data)
 {
@@ -57,6 +58,7 @@ pe_msg_callback(IPC_Channel *client, gpointer user_data)
 	msg = xmlfromIPC(client, MAX_IPC_DELAY);
 	if (msg != NULL) {
 	    xmlNode *data = get_message_xml(msg, F_CRM_DATA);		
+	    /* 遷移依頼を処理する */
 	    process_pe_message(msg, data, client);
 	    free_xml(msg);
 	}
@@ -137,7 +139,7 @@ main(int argc, char ** argv)
 	}
 
 	crm_log_init(CRM_SYSTEM_PENGINE, LOG_INFO, TRUE, FALSE, argc, argv);
-
+	/* ディレクトリパーミッションチェック */
 	if(crm_is_writable(PE_STATE_DIR, NULL, CRM_DAEMON_USER, CRM_DAEMON_GROUP, FALSE) == FALSE) {
 	    crm_err("Bad permissions on "PE_STATE_DIR". Terminating");
 	    fprintf(stderr,"ERROR: Bad permissions on "PE_STATE_DIR". See logs for details\n");
@@ -151,6 +153,7 @@ main(int argc, char ** argv)
 	crm_debug("Checking for old instances of %s", crm_system_name);
 	old_instance = init_client_ipc_comms_nodispatch(CRM_SYSTEM_PENGINE);
 	while(old_instance != NULL) {
+		/* 既に起動中のpengineプロセスの終了処理 */
 	    xmlNode *cmd = create_request(
 		CRM_OP_QUIT, NULL, NULL, CRM_SYSTEM_PENGINE, CRM_SYSTEM_PENGINE, NULL);
 
@@ -163,7 +166,7 @@ main(int argc, char ** argv)
 	    old_instance->ops->destroy(old_instance);
 	    old_instance = init_client_ipc_comms_nodispatch(CRM_SYSTEM_PENGINE);
 	}
-	
+	/* IPC接続処理の初期化 */
 	crm_debug("Init server comms");
 	if(init_server_ipc_comms(ipc_server, pe_client_connect,
 				 default_ipc_connection_destroy)) {
@@ -173,7 +176,7 @@ main(int argc, char ** argv)
 
 	/* Create the mainloop and run it... */
 	crm_info("Starting %s", crm_system_name);
-	
+	/* mainloop開始 */
 	mainloop = g_main_new(FALSE);
 	g_main_run(mainloop);
 	

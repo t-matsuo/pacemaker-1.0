@@ -54,9 +54,11 @@ extern xmlNode*get_object_root(
  *  - A list of nodes that need to be shutdown
  *  - A list of the possible stop/start actions (without dependencies)
  */
+/* 受信したxmlの全展開処理 */
 gboolean
 cluster_status(pe_working_set_t *data_set)
 {
+	/* 受信xmlのcrm_config,nodes,resources,statusノードのポインタを取り出す */
 	xmlNode * config          = get_object_root(
 		XML_CIB_TAG_CRMCONFIG,   data_set->input);
 	xmlNode * cib_nodes       = get_object_root(
@@ -65,6 +67,7 @@ cluster_status(pe_working_set_t *data_set)
 		XML_CIB_TAG_RESOURCES,   data_set->input);
 	xmlNode * cib_status      = get_object_root(
 		XML_CIB_TAG_STATUS,      data_set->input);
+	/* 受信XMLのhave-quorum属性を取得する */
  	const char *value = crm_element_value(
 		data_set->input, XML_ATTR_HAVE_QUORUM);
 	
@@ -73,6 +76,7 @@ cluster_status(pe_working_set_t *data_set)
 	/* reset remaining global variables */
 	
 	if(data_set->input == NULL) {
+		/* 受信xmlが空の場合は処理しない */
 		return FALSE;
 	}
 
@@ -83,26 +87,29 @@ cluster_status(pe_working_set_t *data_set)
 	if(data_set->input != NULL
 	   && crm_element_value(data_set->input, XML_ATTR_DC_UUID) != NULL) {
 		/* this should always be present */
+		/* 受信xmlが空でなく、dc-uuid属性がある場合は、dc-uuid属性値をdata_setにセットする */
 		data_set->dc_uuid = crm_element_value_copy(
 			data_set->input, XML_ATTR_DC_UUID);
 	}	
-	
+	/* pe_flag_have_quorumをクリアする */
 	clear_bit_inplace(data_set->flags, pe_flag_have_quorum);
 	if(crm_is_true(value)) {
+		/* have-quorum属性がtrueの場合は、pe_flag_have_quorumフラグをセットする */
 	    set_bit_inplace(data_set->flags, pe_flag_have_quorum);
 	}
-
+	/* 受信xmlのop_defaultsノード、rsc_defaultsノードがあればポインタをdata_setに取得する */
 	data_set->op_defaults = get_object_root(XML_CIB_TAG_OPCONFIG, data_set->input);
 	data_set->rsc_defaults = get_object_root(XML_CIB_TAG_RSCCONFIG, data_set->input);
-
+	/* crm_configノードをdata_setに展開する */
  	unpack_config(config, data_set);
 	
 	if(is_set(data_set->flags, pe_flag_have_quorum) == FALSE
 	   && data_set->no_quorum_policy != no_quorum_ignore) {
+		/* pe_flag_have_quorumがフラグセットされていない場合で、no_quorum_policy属性がignoreの場合は警告ログを出力する */
 		crm_warn("We do not have quorum"
 			 " - fencing and resource management disabled");
 	}
-	
+	/* nodesノード,resourecesノード、statusノードをdata_setに展開する */
  	unpack_nodes(cib_nodes, data_set);
  	unpack_resources(cib_resources, data_set);
  	unpack_status(cib_status, data_set);

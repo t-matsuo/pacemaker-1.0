@@ -707,9 +707,10 @@ apply_system_health(pe_working_set_t *data_set)
 gboolean
 stage0(pe_working_set_t *data_set)
 {
+	/* 受信したxmlのconstraintsノードをセットする */
 	xmlNode * cib_constraints = get_object_root(
 		XML_CIB_TAG_CONSTRAINTS, data_set->input);
-
+	/* 受信したxmlが空の場合は処理しない */
 	if(data_set->input == NULL) {
 		return FALSE;
 	}
