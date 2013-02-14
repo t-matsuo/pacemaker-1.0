@@ -53,7 +53,7 @@ gboolean DemoteRsc (resource_t *rsc, node_t *next, gboolean optional, pe_working
 gboolean PromoteRsc(resource_t *rsc, node_t *next, gboolean optional, pe_working_set_t *data_set);
 gboolean RoleError (resource_t *rsc, node_t *next, gboolean optional, pe_working_set_t *data_set);
 gboolean NullOp    (resource_t *rsc, node_t *next, gboolean optional, pe_working_set_t *data_set);
-
+/* リソースのroleとnext_roleから次の状態を決定する為のマトリクス	*/
 enum rsc_role_e rsc_state_matrix[RSC_ROLE_MAX][RSC_ROLE_MAX] = {
 /* Current State */	
 /*    Next State:  Unknown 	    Stopped	      Started	        Slave	          Master */
@@ -63,7 +63,7 @@ enum rsc_role_e rsc_state_matrix[RSC_ROLE_MAX][RSC_ROLE_MAX] = {
 /* Slave */	{ RSC_ROLE_STOPPED, RSC_ROLE_STOPPED, RSC_ROLE_UNKNOWN, RSC_ROLE_SLAVE,   RSC_ROLE_MASTER, },
 /* Master */	{ RSC_ROLE_STOPPED, RSC_ROLE_SLAVE,   RSC_ROLE_UNKNOWN, RSC_ROLE_SLAVE,   RSC_ROLE_MASTER, },
 };
-
+/* リソースのroleとnext_roleから実行する処理を決定するマトリクス	*/
 gboolean (*rsc_action_matrix[RSC_ROLE_MAX][RSC_ROLE_MAX])(resource_t*,node_t*,gboolean,pe_working_set_t*) = {
 /* Current State */	
 /*    Next State: Unknown	Stopped		Started		Slave		Master */
@@ -74,7 +74,8 @@ gboolean (*rsc_action_matrix[RSC_ROLE_MAX][RSC_ROLE_MAX])(resource_t*,node_t*,gb
 /* Master */	{ RoleError,	RoleError,	RoleError,	DemoteRsc,	NullOp,     },
 };
 
-
+/* 指定されたリソースの配置可能ノードリスト(allowed_nodes)のノード情報のweightから、配置先のノードを決定する処理	*/
+/* 最終的な配置可能ノードリストから配置ノードの決定はこの処理で行われる */
 static gboolean
 native_choose_node(resource_t *rsc)
 {
@@ -89,9 +90,11 @@ native_choose_node(resource_t *rsc)
 
 	int lpc = 0;
 	int multiple = 0;
+	/* リソース情報のallowed_nodesリストの長さを取得する */
 	int length = g_list_length(rsc->allowed_nodes);
 
 	if(is_not_set(rsc->flags, pe_rsc_provisional)) {
+		/* リソース情報にpe_rsc_provisionalフラグがセットされていない場合は処理しない */
 		return rsc->allocated_to?TRUE:FALSE;
 	}
 	
@@ -99,24 +102,34 @@ native_choose_node(resource_t *rsc)
 		    rsc->id, length);
 
 	if(rsc->allowed_nodes) {
+		/* リソース情報のallowed_nodesリストが空でない場合 */
+		/* allowed_nodesリストをweightの高い順（同じ場合は、リソースの数の少ない方が前)にソートする */
 	    rsc->allowed_nodes = g_list_sort(rsc->allowed_nodes, sort_node_weight);
 	    nodes = rsc->allowed_nodes;
+	    /* リストの先頭のノード情報を取り出す */
 	    chosen = g_list_nth_data(nodes, 0);
 
 	    if(chosen
 	       && chosen->weight > 0
 	       && can_run_resources(chosen)) {
+			/* 先頭のノード情報が取れて、weightが０以上で、ノードがonline状態でリソースが起動可能な場合 */
+			/* リソース情報のrunning_onリスト（起動しているリソースの情報)の先頭のノード情報を取りだす */
 		node_t *running = g_list_nth_data(rsc->running_on, 0);
 		if(can_run_resources(running) == FALSE) {
+				/* running_onのノードでは、リソースが起動不可な場合は、取り出したノード情報をNULLにする */
 		    running = NULL;
 		}
-		
+			/* 先頭より後ろのソート済みのallowed_nodesリストを全て処理 */
 		for(lpc = 1; lpc < length; lpc++) {
+				/* Ｎ番目のノード情報を取り出す */
 		    node_t *tmp = g_list_nth_data(nodes, lpc);
 		    if(tmp->weight == chosen->weight) {
+					/* weightが同じノードがある場合は、multipleをインクリメントする */
 			multiple++;
 			if(running && tmp->details == running->details) {
 			    /* prefer the existing node if scores are equal */
+			    		/* すでに起動しているリソースで、allowed_nodesリスト上の順は後ろで、weightが同じ場合は */
+			    		/* Ｎ番目のノード情報で選択ノード情報にセットする */
 			    chosen = tmp;
 			}
 		    }
@@ -130,34 +143,43 @@ native_choose_node(resource_t *rsc)
 		if(chosen->weight >= INFINITY) {
 			log_level = LOG_WARNING;
 		}
-		
+		/* 同じスコアのallowed_nodesリストがあった場合には、ログを出力する */
 		do_crm_log(log_level, "%d nodes with equal score (%s) for"
 			   " running %s resources.  Chose %s.",
 			   multiple, score, rsc->id, chosen->details->uname);
 		crm_free(score);
 	}
 	
-	
+	/* 選択されたノードを配置ノードにアサインする */
 	return native_assign_node(rsc, nodes, chosen, FALSE);
 }
 
 int node_list_attr_score(GListPtr list, const char *attr, const char *value) 
 {
-    int best_score = -INFINITY;
+	/* 指定されたノード情報リストの中から、指定された属性値（通常は、指定されたuname属性) */
+	/* にマッチする最も大きなweightを取り出す */
+	/* 取り出せない場合は、-INFINTYの場合もある */
+	int best_score = -INFINITY;
     const char *best_node = NULL;
 
     if(attr == NULL) {
+		/* attrがNULLの場合は、atrに"#uname"をセットする */
 	attr = "#"XML_ATTR_UNAME;
     }
-
+	/* listのすべてのノード情報を処理する */
     slist_iter(node, node_t, list, lpc,
 	       int weight = node->weight;
 	       if(can_run_resources(node) == FALSE) {
+				/* そのノード上でリソースが起動できない場合は、weightに-INFINITYをセットする */
 		   weight = -INFINITY;
 	       }
 	       if(weight > best_score || best_node == NULL) {
+				/* weigthがbest_scoreより大きいか、best_nodeがNULLの場合 */
+				/* ノード情報のdetailsからattrを取り出す */
 		   const char *tmp = g_hash_table_lookup(node->details->attrs, attr);
 		   if(safe_str_eq(value, tmp)) {
+					/* とりだしたattrとvalue引数が同じ場合は、best_scoreにweightを */
+					/* best_nodeにnode->details->unameをセットする					*/
 		       best_score = weight;
 		       best_node = node->details->uname;
 		   }
@@ -168,24 +190,26 @@ int node_list_attr_score(GListPtr list, const char *attr, const char *value)
 	crm_info("Best score for %s=%s was %s with %d",
 		attr, value, best_node?best_node:"<none>", best_score);
     }
-    
+    /* best_socreを返す。取れない場合は、-INFINITYが返る	*/
     return best_score;
 }
 
-
+/* list1のノード情報リストに、list2のノード情報リストのノードマッチングしたweightをマージする処理 */
 static void
 node_list_update(GListPtr list1, GListPtr list2, const char *attr, int factor, gboolean only_positive)
 {
     int score = 0;
     int new_score = 0;
     if(attr == NULL) {
+		/* attrがNULLの場合は、"#uname"をセットする */
 	attr = "#"XML_ATTR_UNAME;
     }
-    
+    /* list1のすべてのノード情報を処理する */
     slist_iter(
 	node, node_t, list1, lpc,
 	
 	CRM_CHECK(node != NULL, continue);
+		/* list2のノード情報リストからlist1のノードに一致したスコアを取り出す（取り出せない場合は、-INFININITYもある) */
 	score = node_list_attr_score(list2, attr, g_hash_table_lookup(node->details->attrs, attr));
 	new_score = merge_weights(factor*score, node->weight);
 	
@@ -196,6 +220,9 @@ node_list_update(GListPtr list1, GListPtr list2, const char *attr, int factor, g
 	     * TODO: Decide if we want to filter only if weight == -INFINITY
 	     *
 	     */
+	     	/* factorが０未満でかつ、scoreが０未満（まだ、配置が決まっていない事も含む）なら処理しない */
+	     	/* ※ 例として、factorが０未満になるケースは、colocationのスコアがマイナス値がある */
+	     	/*              factorが１になるケースは、colocationのスコアがINFINITYの場合 */
 	    crm_debug_2("%s: Filtering %d + %d*%d (factor * score)",
 		      node->details->uname, node->weight, factor, score);
 
@@ -215,11 +242,13 @@ node_list_update(GListPtr list1, GListPtr list2, const char *attr, int factor, g
 	} else {
 	    crm_debug_2("%s: %d + %d*%d",
 		      node->details->uname, node->weight, factor, score);
+		/* list1のノード情報のweightにnew_scoreをセットする	*/
 	    node->weight = new_score;
 	}
 	);
 }
-
+/* 指定リソースのノード情報のweightを、指定ノード(GListPtr nodes)情報リストにマージする処理 */
+/* 指定リソースがさらにwith指定されている場合は、そのノード情報のweightも、指定ノード情報リストにマージする */
 GListPtr
 rsc_merge_weights(resource_t *rsc, const char *rhs, GListPtr nodes, const char *attr,
 		  int factor, gboolean allow_rollback, gboolean only_positive) 
@@ -231,28 +260,40 @@ rsc_merge_weights(resource_t *rsc, const char *rhs, GListPtr nodes, const char *
     }
 
     if(is_set(rsc->flags, pe_rsc_merging)) {
+		/* リソースのpe_rsc_mergingが既にセットされている場合は処理しない */
+		/* すでにnative_merge_weights処理中の場合は処理されないことになる */
 	crm_info("%s: Breaking dependency loop at %s", rhs, rsc->id);
 	return nodes;
     }
-
+	/* 処理中のフラグをセットする */
     set_bit(rsc->flags, pe_rsc_merging);
     crm_debug_2("%s: Combining scores from %s", rhs, rsc->id);
 
+	/* 更新対象（マージ先）となるノードリストの内容をすべてそのまま取り出す */
     work = node_list_dup(nodes, FALSE, FALSE);
+    /* 指定リソースのallowed_nodesリストと対象となるリソースのノードリストの情報から、対象となるノードリスト */
+    /* のweightを更新する */
     node_list_update(work, rsc->allowed_nodes, attr, factor, only_positive);
     
     if(allow_rollback && can_run_any(work) == FALSE) {
 	crm_info("%s: Rolling back scores from %s", rhs, rsc->id);
+		/* allow_rollbackフラグがTRUEで、マージしたノードリスト情報で起動可能なノードがない場合 */
+		/* マージしたリストを破棄して、リソース情報のpe_rsc_mergingフラグをクリアする */
 	slist_destroy(node_t, n, work, crm_free(n));
 	clear_bit(rsc->flags, pe_rsc_merging);
+		/* もともとの更新対象（マージ先）となるノードリストのポインタを返す */
 	return nodes;
     }
 
     if(can_run_any(work)) {
+		/* マージしたノード情報リストにリソースを起動可能なノードがある場合(weight>=0がある) */
+		/* さらに、指定リソースのすべてのcolocation情報のwith-rsc指定情報を処理する */
 	slist_iter(
 	    constraint, rsc_colocation_t, rsc->rsc_cons_lhs, lpc,
 
 	    crm_debug_2("Applying %s", constraint->id);
+	    	/* 対象リソースのその他のrsc指定のallowed_nodesリストのweightも、*/
+	    	/* この指定リソースのallowed_nodesリストのweightに反映できれば反映する */
 	    work = rsc_merge_weights(constraint->rsc_lh, rhs, work, constraint->node_attribute, 
 		multiplier*constraint->score/INFINITY, allow_rollback, only_positive);
 	    );
@@ -269,16 +310,19 @@ rsc_merge_weights(resource_t *rsc, const char *rhs, GListPtr nodes, const char *
     }
 
     slist_destroy(node_t, n, nodes, crm_free(n));
+    /* 処理中のフラグをクリア */
     clear_bit(rsc->flags, pe_rsc_merging);
     return work;
 }
-
+/* natvieなリソースのcolor処理 */
 node_t *
 native_color(resource_t *rsc, pe_working_set_t *data_set)
 {
         int alloc_details = scores_log_level+1;
 	const char *class = crm_element_value(rsc->xml, XML_AGENT_ATTR_CLASS);
 	if(rsc->parent && is_not_set(rsc->parent->flags, pe_rsc_allocating)) {
+		/* 親リソースが存在しているに、親リソースのpe_rsc_allocatingフラグがセットされていない場合は、*/
+		/* 親リソースのcolorから処理しなおす */
 		/* never allocate children on their own */
 		crm_debug("Escalating allocation of %s to its parent: %s",
 			  rsc->id, rsc->parent->id);
@@ -286,10 +330,13 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 	}
 	
 	if(is_not_set(rsc->flags, pe_rsc_provisional)) {
+		/* すでに、native_assign_node()処理されたリソースに関しては、処理しない */
+		/* 決定している配置先のノード情報allocated_toを返す */
 		return rsc->allocated_to;
 	}
 
 	if(is_set(rsc->flags, pe_rsc_allocating)) {
+		/* pe_rsc_allocatingがセットされているリソースも処理しない */
 		crm_debug("Dependency loop detected involving %s", rsc->id);
 		return NULL;
 	}
@@ -297,35 +344,56 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 	set_bit(rsc->flags, pe_rsc_allocating);
 	print_resource(alloc_details, "Allocating: ", rsc, FALSE);
 	dump_node_scores(alloc_details, rsc, "Pre-allloc", rsc->allowed_nodes);
-
+	/* pe_rsc_allocatingフラグをセット */
+	/************************* このリソースに対するcolocationタグのrsc指定を処理する ***********************/
+	/* このリソース情報のrsc_consリスト(このリソースに対するcolocation情報のrsc指定)をすべて処理する */
+	/* ※ただし、groupリソース配下のprimitiveリソースの場合、rsc_consリストには、groupリソースのrsc_consリスト(このリソースに対するcolocation情報) */
+	/* も追加されているので注意 */
 	slist_iter(
 		constraint, rsc_colocation_t, rsc->rsc_cons, lpc,
 
 		GListPtr archive = NULL;
+		/* colocation情報のwith-rscに対応するリソース情報を取り出す */
+		/* ※まずは、このリソースの依存リソース(with-rsc)を処理する */
 		resource_t *rsc_rh = constraint->rsc_rh;
 		crm_debug_2("%s: Pre-Processing %s (%s, %d, %s)",
 			    rsc->id, constraint->id, rsc_rh->id,
 			    constraint->score, role2text(constraint->role_lh));
 		if(constraint->role_lh >= RSC_ROLE_MASTER
 		   || (constraint->score < 0 && constraint->score > -INFINITY)) {
+			/* colocation情報のrole_lh(with-rsc-role)がRSC_ROLE_MASTER以上で、*/
+			/* scoreがマイナス値で-INFINTYでない場合 */
+			/* weightをリセットしないで、このリソース情報のallowed_nodesリストの全ての複製を取得する */
+			/* マイナスのweightも含む */
+			/* ※-INFINTYおよびその他のマイナス値でcolocationは今現在使っていないので */
+			/*    これは処理されないはず */
 		    archive = node_list_dup(rsc->allowed_nodes, FALSE, FALSE);
 		}
+		/************************* このリソースに対するwith-rsc指定のリソースのcolorを先に処理する ***********************/
+		/* このリソースのcolocation情報の依存するリソース(with-rsc)に対応するリソースをcolor処理を実行する */
 		rsc_rh->cmds->color(rsc_rh, data_set);
+		/* このリソースのrsc_colocation_lh処理でこのリソースのcolocationのスコアを反映処理 */
+		/* ※with-rsc指定されたリソースの配置先が決定している場合には、このリソースのweightにcolocationのスコアを反映する */
 		rsc->cmds->rsc_colocation_lh(rsc, rsc_rh, constraint);	
 		if(archive && can_run_any(rsc->allowed_nodes) == FALSE) {
+			/* スコアがマイナス値で設定されていて（-INFINTY以外)、リソースの配置可能なノードがない場合 */
 		    crm_info("%s: Rolling back scores from %s", rsc->id, rsc_rh->id);
 		    pe_free_shallow_adv(rsc->allowed_nodes, TRUE);
+		    /* リソースのallowed_nodesリストにarchiveリストをセットする */
 		    rsc->allowed_nodes = archive;
 		    archive = NULL;
 		}
 		pe_free_shallow_adv(archive, TRUE);
 	    );	
-
+	/* colocationのスコア適応後のダンプ */
 	dump_node_scores(alloc_details, rsc, "Post-coloc", rsc->allowed_nodes);
-
+	/************************* このリソースに対するcolocationタグのwith-rsc指定を処理する ***********************/
+	/* このリソース情報のrsc_cons_lhsリスト(このリソースに対する他のリソースからcolocation情報でwith-rsc指定されている情報）をすべて処理する */
+	/* ※ただし、groupリソースは配下の場合、rsc_cons_lhsリストには、groupリソースのrsc_cons_lhsリスト(このリソースに対するcolocation情報) */
+	/* ※rsc_cons_lhsリストには、このリソースに対する他リソースからのwith-rsc指定されているcolocation情報が入っている */
 	slist_iter(
 	    constraint, rsc_colocation_t, rsc->rsc_cons_lhs, lpc,
-	    
+	    /* このリソースの配置可能なノードリストに、colocation指定のrsc指定リソースの配置可能なノードリストのweightsをマージする */
 	    rsc->allowed_nodes = constraint->rsc_lh->cmds->merge_weights(
 		constraint->rsc_lh, rsc->id, rsc->allowed_nodes,
 		constraint->node_attribute, constraint->score/INFINITY, TRUE, FALSE);
@@ -333,51 +401,76 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 	
 	print_resource(LOG_DEBUG_2, "Allocating: ", rsc, FALSE);
 	if(rsc->next_role == RSC_ROLE_STOPPED) {
+		/* このリソースの次のロールがRSC_ROLE_STOPPEDの場合 */
 		crm_debug_2("Making sure %s doesn't get allocated", rsc->id);
 		/* make sure it doesnt come up again */
+		/* このリソースの配置ノード(allowed_nodes)に、data_set->nodesの全てのノードのリストを */
+		/* スコア-INFINITYで追加する */
 		resource_location(
 			rsc, NULL, -INFINITY, XML_RSC_ATTR_TARGET_ROLE, data_set);
 	}
-
+	/* colocationの依存関係適用後のダンプ */
 	dump_node_scores(show_scores?0:scores_log_level, rsc, __PRETTY_FUNCTION__, rsc->allowed_nodes);
 	if(is_set(data_set->flags, pe_flag_stonith_enabled)
 	       && is_set(data_set->flags, pe_flag_have_stonith_resource) == FALSE) {
+		/* 状態遷移作業エリアのpe_flag_stonith_enabledフラグがセットされていて、 */
+		/* pe_flag_have_stonith_resourceがセットされていない場合は、このリソースのpe_rsc_managedフラグをクリアする */
+		/* ※stonith-enabledがTRUEなのに、stonithリソースがリソース構成にない場合が該当する */
 	    clear_bit(rsc->flags, pe_rsc_managed);
 	}
 
 	if(is_not_set(rsc->flags, pe_rsc_managed)) {
+		/* このリソースのpe_rsc_managedフラグがセットされていない場合 */
+		/* ※unmanagedリソースか、stonith-enabledがTRUEなのに、stonithリソースがリソース構成にない場合 */
 	    const char *reason = NULL;
 	    node_t *assign_to = NULL;
 	    rsc->next_role = rsc->role;
 	    if(rsc->running_on == NULL) {
+			/* まだ、このリソースがどこでも起動していない場合 */
+			/* 次のnative_assign_node処理でnext_role = RSC_ROLE_STOPPEDされる */
 		reason = "inactive";
 	    } else if(rsc->role == RSC_ROLE_MASTER) {
+			/* このリソースがマスターとして起動している場合 */
 		assign_to = rsc->running_on->data;
 		reason = "master";
 	    } else if(is_set(rsc->flags, pe_rsc_failed)) {
+			/* このリソースが故障している場合 */
+			/* 次のnative_assign_node処理でnext_role = RSC_ROLE_STOPPEされる */
 		reason = "failed";		
 	    } else {
+			/* このリソースが起動していている場合 */
 		assign_to = rsc->running_on->data;
 		reason = "active";
 	    }
 	    crm_info("Unmanaged resource %s allocated to %s: %s", rsc->id,
 		     assign_to?assign_to->details->uname:"'nowhere'", reason);
+	    /* リソースの起動ノード(allocated_to)をassign_toノードでセットする */
+	    /* ※assign_toノードがNULLの場合は、next_role = RSC_ROLE_STOPPEDされるだけで、allocated_toはセットしない */
 	    native_assign_node(rsc, NULL, assign_to, TRUE);
 
 	} else if(is_set(data_set->flags, pe_flag_stop_everything)
 		  && safe_str_neq(class, "stonith")) {
+		/* 状態遷移作業エリアのpe_flag_stop_everythingフラグがセットされている場合 */
 	    crm_debug("Forcing %s to stop", rsc->id);
+	    /* ※assign_toノードがNULLの場合は、next_role = RSC_ROLE_STOPPEDされるだけで、allocated_toはセットしない */
 	    native_assign_node(rsc, NULL, NULL, TRUE);
 
 	} else if(is_set(rsc->flags, pe_rsc_provisional)
 	   && native_choose_node(rsc) ) {
+		/* ******* 通常の未起動のリソースはここで処理される *************************************************/
+		/* まだ、native_choose_nodeされていない(pe_rsc_provisionalフラグがセットされている)場合は、 */
+		/* native_choose_node処理で起動ノード(allocated_to)をセットする */
 		crm_debug_3("Allocated resource %s to %s",
 			    rsc->id, rsc->allocated_to->details->uname);
 
 	} else if(rsc->allocated_to == NULL) {
+		/* native_choose_nodeを実行したが、起動ノード(allocated_to)が決定してない場合 */
 		if(is_not_set(rsc->flags, pe_rsc_orphan)) {
+			/* リソース情報のpe_rsc_orphanフラグがセットされていない場合 */
+			/* 通常のリソースとして認識されているリソースの場合がこれに当たる */
 			crm_info("Resource %s cannot run anywhere", rsc->id);
 		} else if(rsc->running_on != NULL) {
+			/* リソース情報のpe_rsc_orphanフラグがセットされていて、running_onがNULLでない(すでに起動している)場合 */
 			crm_info("Stopping orphan resource %s", rsc->id);
 		}
 		
@@ -385,48 +478,57 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 		crm_debug("Pre-Allocated resource %s to %s",
 			  rsc->id, rsc->allocated_to->details->uname);
 	}
-	
+	/* pe_rsc_allocatingフラグをクリアして、再帰呼び出しループでcolorさせない */
 	clear_bit(rsc->flags, pe_rsc_allocating);
 	print_resource(LOG_DEBUG_3, "Allocated ", rsc, TRUE);
-
+	/* 起動ノード情報を返す */
 	return rsc->allocated_to;
 }
-
+/* opの重複チェック */
 static gboolean is_op_dup(
     resource_t *rsc, const char *name, const char *interval) 
 {
     gboolean dup = FALSE;
     const char *id = NULL;
     const char *value = NULL;
+    /* 全てのopエレメントを処理する */
     xml_child_iter_filter(
 	rsc->ops_xml, operation, "op",
+		/* opから"name"エレメント値を取り出す */
 	value = crm_element_value(operation, "name");
 	if(safe_str_neq(value, name)) {
+			/* チェック対象の"name"エレメントでない場合は処理しない */
 	    continue;
 	}
 	
+		/* opから"interval"エレメント値を取り出す */
 	value = crm_element_value(operation, XML_LRM_ATTR_INTERVAL);
 	if(value == NULL) {
+			/* intervalが取得できない場合は０をセットする */
 	    value = "0";
 	}
 	
 	if(safe_str_neq(value, interval)) {
+			/* チェック対象の"interval"エレメントでない場合は処理しない */
 	    continue;
 	}
 
 	if(id == NULL) {
+			/* idがNULLの場合は、opからidを変換 */
 	    id = ID(operation);
 	    
 	} else {
 	    crm_config_err("Operation %s is a duplicate of %s", ID(operation), id);
 	    crm_config_err("Do not use the same (name, interval) combination more than once per resource");
+	    	/* 重複している結果をセット */
 	    dup = TRUE;
 	}
 	);
     
+    /* 結果を返す */
     return dup;
 }
-
+/* リソースのoperation情報から、繰り返し実行するアクションを生成する */
 void
 RecurringOp(resource_t *rsc, action_t *start, node_t *node,
 	    xmlNode *operation, pe_working_set_t *data_set) 

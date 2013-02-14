@@ -1317,9 +1317,11 @@ static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *or
 		    
     if(strstr(order->rh_action_task, "_"RSC_STOP"_0")
        || strstr(order->rh_action_task, "_"RSC_STOPPED"_0")) {
+		/* then指定のアクションがSTOPかSTOPPEDの場合 */
 	task = stop_rsc;
 	reason = "down activity";
 	lh_role = RSC_ROLE_STOPPED;
+		/* then指定のリソースのrunning_on情報のリストをrh_hostsに取得する */
 	order->rh_rsc->fns->location(order->rh_rsc, &rh_hosts, down_stack);
 			
     } else if(strstr(order->rh_action_task, "_"RSC_DEMOTE"_0")
@@ -1339,9 +1341,11 @@ static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *or
 			
     } else if(strstr(order->rh_action_task, "_"RSC_START"_0")
 	      || strstr(order->rh_action_task, "_"RSC_STARTED"_0")) {
+		/* then指定のアクションがSTARTかSTARTEDの場合 */
 	task = start_rsc;
 	down_stack = FALSE;
 	reason = "up activity";
+		/* then指定のリソースのallocated_to情報のリストをrh_hostsに取得する */
 	order->rh_rsc->fns->location(order->rh_rsc, &rh_hosts, down_stack);
 	/* if(order->rh_rsc->variant > pe_clone) { */
 	/*     lh_role = RSC_ROLE_SLAVE; */
@@ -1353,14 +1357,17 @@ static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *or
     }
 		    
     /* slist_iter(h, node_t, rh_hosts, llpc, crm_info("RHH: %s", h->details->uname)); */
-
+	/* first指定cloneリソースの全ての子リソースを処理する */
     slist_iter(
 	child_rsc, resource_t, rsc->children, lpc,
 
 	gboolean create = FALSE;
 	gboolean restart = FALSE;
+		/* 子リソースのnext_roleを取り出す */
 	enum rsc_role_e lh_role_new = child_rsc->fns->state(child_rsc, FALSE);
+		/* 子リソースのroleを取り出す */
 	enum rsc_role_e lh_role_old = child_rsc->fns->state(child_rsc, TRUE);
+		/* 子リソースのdown_stackフラグに対応したrole(next_role)を取り出す */
 	enum rsc_role_e child_role = child_rsc->fns->state(child_rsc, down_stack);
 
 	crm_debug_4("Testing %s->%s for %s: %s vs. %s %s",
@@ -1368,25 +1375,32 @@ static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *or
 		    role2text(lh_role), role2text(child_role), order->lh_action_task);
 	
 	if(rh_hosts == NULL) {
+	    	/* thenリソースの配置（もしくは実行）ノード情報が取れない場合は処理をブレーク */
 	    crm_debug_3("Terminating search: %s.%d list is empty: no possible %s",
 			order->rh_rsc->id, down_stack, reason);
 	    break;
 	}
 
 	if(lh_role_new == lh_role_old) {
+			/* 子リソースのroleとnext_roleが同じ場合 */
+			/* restartのアクションがセットされているか確認する */
 	    restart = detect_restart(child_rsc);
 	    if(restart == FALSE) {
 		crm_debug_3("Ignoring %s->%s for %s: no relevant %s (no role change)",
 			 order->lh_action_task, order->rh_action_task, child_rsc->id, reason);
+				/* restartではない場合は、次の子リソースを処理する */
 		continue;
 	    }
 	}
 
 	hosts = NULL;
+		/* 子リソースのdown_stackフラグに対応したノード情報を取得する */
 	child_rsc->fns->location(child_rsc, &hosts, down_stack);
+		/* 子リソースのノード情報とthen指定リソースのノード情報のandノード情報を生成する */
 	intersection = node_list_and(hosts, rh_hosts, FALSE);
 	/* slist_iter(h, node_t, hosts, llpc, crm_info("H: %s %s", child_rsc->id, h->details->uname)); */
 	if(intersection == NULL) {
+			/* andノード情報が取れない場合は、次の子リソースを処理する */
 	    crm_debug_3("Ignoring %s->%s for %s: no relevant %s",
 		     order->lh_action_task, order->rh_action_task, child_rsc->id, reason);
 	    g_list_free(hosts);
@@ -1394,6 +1408,7 @@ static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *or
 	}
 			
 	if(restart) {
+			/* restartのアクションがセットされている場合 */
 	    reason = "restart";
 	    create = TRUE;
 			    
@@ -1417,6 +1432,7 @@ static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *or
 	}
 
 	if(create) {
+			/* createフラグがTRUEになった場合 */
 	    char *task = order->lh_action_task;
 
 	    any_ordered++;
@@ -1441,12 +1457,13 @@ static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *or
 	g_list_free(hosts);
 			
 	);
-		    
+	/* then指定リソースからのノード情報リストを解放する */
     g_list_free(rh_hosts);
 
     if(any_ordered == 0 && down_stack == FALSE) {
 	GListPtr lh_hosts = NULL;
 	if(order->type & pe_order_runnable_left) {
+	    	/* lh_hostsリストに対象リソースのallocated_toリストを取得する */
 	    rsc->fns->location(rsc, &lh_hosts, FALSE);
 	}
 	if(lh_hosts == NULL) {
@@ -1457,40 +1474,49 @@ static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *or
     }
     order->type = pe_order_optional;
 }
-
+/* cloneリソースのorderのFirst指定処理 */
 void clone_rsc_order_lh(resource_t *rsc, order_constraint_t *order, pe_working_set_t *data_set)
 {
 	resource_t *r1 = NULL;
 	resource_t *r2 = NULL;	
 	gboolean do_interleave = FALSE;
 	clone_variant_data_t *clone_data = NULL;
+	/* clone固有データの取得 */
 	get_clone_variant_data(clone_data, rsc);
 
 	crm_debug_4("%s->%s", order->lh_action_task, order->rh_action_task);
 	if(order->rh_rsc == NULL) {
+	    /* then指定のリソースがない場合 */
 	    order->lh_action_task = convert_non_atomic_task(order->lh_action_task, rsc, FALSE, TRUE);
 	    native_rsc_order_lh(rsc, order, data_set);
 	    return;
 	}
-	
+	/* ※ここからは、then指定がある場合の処理になる */
+	/* 対象リソースの親トップリソースを取りだす */
 	r1 = uber_parent(rsc);
+	/* then指定リソースの親トップリソースを取り出す */
 	r2 = uber_parent(order->rh_rsc);
 	
 	if(r1 == r2) {
+		/* 親トップリソースが同じリソース間のorderの場合 */
 		native_rsc_order_lh(rsc, order, data_set);
 		return;
 	}
 	
 	if(order->rh_rsc->variant > pe_group && clone_data->interleave) {
+		/* thenリソースがclone,masterの場合 */
 	    clone_variant_data_t *clone_data_rh = NULL;
+	    /* thenリソースのclone固有データを取得する */
 	    get_clone_variant_data(clone_data_rh, order->rh_rsc);
 
 
 	    if(clone_data->clone_node_max == clone_data_rh->clone_node_max) {
 		/* only the LHS side needs to be labeled as interleave */
+			/* 一致する場合は、do_interleaveフラグをTRUEにセット */
 		do_interleave = TRUE;
 
 	    } else {
+			/* first指定のclone_node_maxと、then指定のcloneリソースのclone_node_maxが一致しない場合は、エラーログ */
 		crm_config_err("Cannot interleave "XML_CIB_TAG_INCARNATION
 			       " %s and %s because they do not support the same"
 			       " number of resources per node",
@@ -1500,10 +1526,13 @@ void clone_rsc_order_lh(resource_t *rsc, order_constraint_t *order, pe_working_s
 	
 
 	if(order->rh_rsc == NULL) {
+		/* then指定のリソースがＮＵＬＬの場合 */
+		/* ※無駄なきがする？先に判定して処理を抜けているので.... */
 	    do_interleave = FALSE;
 	}
 	
 	if(do_interleave) {
+		/* do_interleaveフラグがTRUEの場合(cloneリソース間のorderの場合が該当する) */
 	    resource_t *lh_child = NULL;
 	    resource_t *rh_saved = order->rh_rsc;
 	    gboolean current = FALSE;
@@ -1542,7 +1571,7 @@ void clone_rsc_order_lh(resource_t *rsc, order_constraint_t *order, pe_working_s
 		);
 	    
 	} else {
-	    
+		/* do_interleaveフラグがFALSEの場合(cloneリソースと通常のリソース間のorderの場合が該当する) */
 #if 0
 	    if(order->type != pe_order_optional) {
 		crm_debug("Upgraded ordering constraint %d - 0x%.6x", order->id, order->type);
@@ -1551,6 +1580,7 @@ void clone_rsc_order_lh(resource_t *rsc, order_constraint_t *order, pe_working_s
 #endif
 
 	    if(order->rh_rsc->variant < pe_clone) {
+			/* then指定のリソースがgroup,prmitiveリソースの場合 */
 		clone_rsc_order_lh_non_clone(rsc, order, data_set);		
 		    
 	    } else if(order->type & pe_order_implies_left) {
@@ -1722,37 +1752,46 @@ static void clone_rsc_order_rh_non_clone(
   cleanup:	    
     g_list_free(lh_hosts);
 }
-
+/* cloneリソースのorderのThen指定処理 */
 void clone_rsc_order_rh(
 	action_t *lh_action, resource_t *rsc, order_constraint_t *order)
 {
 	enum pe_ordering type = order->type;
 	clone_variant_data_t *clone_data = NULL;
+	/* first指定リソースの親トップリソースを検索する */
 	resource_t *lh_p = uber_parent(lh_action->rsc);
-	
+	/* clone固有データを取得する */
 	get_clone_variant_data(clone_data, rsc);
 	crm_debug_2("%s->%s", order->lh_action_task, order->rh_action_task);
 
 	if(safe_str_eq(CRM_OP_PROBED, lh_action->uuid)) {
+		/* first指定が"probe_complete"の場合 */
+	    /* 対象cloneリソースの全ての子リソースを処理する */
 	    slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
+			/* 子リソースのThen指定処理を実行する */
 		child_rsc->cmds->rsc_order_rh(lh_action, child_rsc, order);
 		);
 
 	    if(rsc->fns->state(rsc, TRUE) < RSC_ROLE_STARTED
 		&& rsc->fns->state(rsc, FALSE) > RSC_ROLE_STOPPED) {
+			/* 対象cloneリソースのroleがRSC_ROLE_STARTEDでもなくて */
+			/* next_roleがRSC_ROLE_STOPPED以上の場合 */
+			/* typeにpe_order_implies_rightのＯＲ値をセットする */
 		order->type |= pe_order_implies_right;
 	    }
 
 	} else if(lh_p && lh_p != rsc && lh_p->variant < pe_clone) {
+	    /* first指定が"probe_complete"以外の場合で、親トップリソースが存在して、primitive,groupリソースの場合 */
+	    /* clone_rsc_order_rh_non_clone処理を実行する */
 	    clone_rsc_order_rh_non_clone(lh_p, lh_action, rsc, order);
 	    return;
 	}
-	
+	/* 上記のifのreturnで抜けない場合は、native_rsc_order_rh処理を実行する */
  	native_rsc_order_rh(lh_action, rsc, order);
 	order->type = type;
 }
-
+/* クローンリソース、Masterリソースの共通で、locationルールを対象リソースに反映する */
 void clone_rsc_location(resource_t *rsc, rsc_to_node_t *constraint)
 {
 	clone_variant_data_t *clone_data = NULL;
@@ -1760,16 +1799,18 @@ void clone_rsc_location(resource_t *rsc, rsc_to_node_t *constraint)
 
 	crm_debug_3("Processing location constraint %s for %s",
 		    constraint->id, rsc->id);
-
+	/* クローンリソースのallowed_nodesリストにlocationルールの適用可能なノードリストのスコアを反映する */
+	/* ※これにより、クローンリソースのallowed_nodesリストは、locationルールのノード毎のスコアが反映されたallowed_nodesリストになっている */
 	native_rsc_location(rsc, constraint);
+	/* クローンリソースの全ての子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
-
+		/* 子リソースのallowed_nodesリストにlocationルールのノード毎のスコアを反映する */
 		child_rsc->cmds->rsc_location(child_rsc, constraint);
 		);
 }
 
-
+/* cloneリソースをgraph展開する */
 void clone_expand(resource_t *rsc, pe_working_set_t *data_set)
 {
 	clone_variant_data_t *clone_data = NULL;
@@ -1802,10 +1843,14 @@ void clone_expand(resource_t *rsc, pe_working_set_t *data_set)
 	}
 	
 	/* Now that the notifcations have been created we can expand the children */
+	/* cloneリソースの全ての子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,		
+		/* 子リソースのgraph展開処理を実行する */		
 		child_rsc->cmds->expand(child_rsc, data_set));
-
+	/* ※すでに前の子リソース処理で処理されている子リソースのアクションの場合は、dumpがTRUEになっているので */
+	/*   処理済みの為、native_expandでは再処理されない */
+	/* ※なぜ、こういう作りになっているのかは不明... */
 	native_expand(rsc, data_set);
 
 	/* The notifications are in the graph now, we can destroy the notify_data */
@@ -1829,28 +1874,35 @@ static gint sort_rsc_id(gconstpointer a, gconstpointer b)
 
 static resource_t *find_instance_on(resource_t *rsc, node_t *node)
 {
-    slist_iter(child, resource_t, rsc->children, lpc,
+ 	/* 全ての子リソースを処理する */
+   slist_iter(child, resource_t, rsc->children, lpc,
 	       GListPtr known_list = NULL;
+	       /* 子リソースのリソース情報のknown_onリストを取得する(statusがUNKNOWNでないノードリスト) */
 	       rsc_known_on(child, &known_list); 
+	       /* 取得したknown_onリストを全て処理する */
 	       slist_iter(known, node_t, known_list, lpc2,
 			  if(node->details == known->details) {
+				  /* known_onリストのノード情報と対象ノード情報が一致した場合は、子リソース情報を返す */
 			      g_list_free(known_list);
 			      return child;
 			  }
 		   );
+		   /* 作業リストを解放する */
 	       g_list_free(known_list);	       
 	);
+	/* 一致しない場合は、NULLを返す */
     return NULL;
 }
-
+/* クローンリソースのProbe処理 */
 gboolean
 clone_create_probe(resource_t *rsc, node_t *node, action_t *complete,
 		    gboolean force, pe_working_set_t *data_set) 
 {
 	gboolean any_created = FALSE;
 	clone_variant_data_t *clone_data = NULL;
+	/* クローン固有データを取得する */
 	get_clone_variant_data(clone_data, rsc);
-
+	/* クローンの子リソースをrsc_idでソートする */
 	rsc->children = g_list_sort(rsc->children, sort_rsc_id);
 	if(rsc->children == NULL) {
 	    pe_warn("Clone %s has no children", rsc->id);
@@ -1906,26 +1958,29 @@ clone_create_probe(resource_t *rsc, node_t *node, action_t *complete,
 
 	return any_created;
 }
-
+/* metaハッシュテーブルから"値を取り出して、xmlデータに追加する */
 void clone_append_meta(resource_t *rsc, xmlNode *xml)
 {
     char *name = NULL;
     clone_variant_data_t *clone_data = NULL;
+    /* clone固有データを取得する */
     get_clone_variant_data(clone_data, rsc);
 
+    /* "globally-unique"値をリソース情報のpe_rsc_unique値からtrue,falseでxmlデータにセットする */
     name = crm_meta_name(XML_RSC_ATTR_UNIQUE);
     crm_xml_add(xml, name, is_set(rsc->flags, pe_rsc_unique)?"true":"false");
     crm_free(name);
-
+    /* "notify"値をリソース情報のpe_rsc_notify値からtrue,falseでxmlデータにセットする */
     name = crm_meta_name(XML_RSC_ATTR_NOTIFY);
     crm_xml_add(xml, name, is_set(rsc->flags, pe_rsc_notify)?"true":"false");
     crm_free(name);
-    
+    /* リソース情報のmetaハッシュテーブルから"clone-max"値を取り出す */
     name = crm_meta_name(XML_RSC_ATTR_INCARNATION_MAX);
     crm_xml_add_int(xml, name, clone_data->clone_max);
     crm_free(name);
-
+    /* リソース情報のmetaハッシュテーブルから"clone-node-max"値を取り出す */
     name = crm_meta_name(XML_RSC_ATTR_INCARNATION_NODEMAX);
+    /* "clone-node-max"値を取得した値からxmlデータにセットする */
     crm_xml_add_int(xml, name, clone_data->clone_node_max);
     crm_free(name);
 }
