@@ -156,7 +156,7 @@ master_update_pseudo_status(
 			child_rsc->priority = new_priority;		\
 		}							\
 		);
-
+/* 指定リソースがMaster状態に遷移できるかチェックする */
 static node_t *
 can_be_master(resource_t *rsc)
 {
@@ -172,58 +172,70 @@ can_be_master(resource_t *rsc)
 #endif
 	
 	if(rsc->children) {
+		/* 子リソースを持っている場合は、全ての子リソースに対して、can_be_masterを実行する */
 	    slist_iter(
 		child, resource_t, rsc->children, lpc,
 		if(can_be_master(child) == NULL) {
 		    do_crm_log_unlikely(level, "Child %s of %s can't be promoted", child->id, rsc->id);
+		    	/* Master状態に遷移できない場合はNULLを返す */
 		    return NULL;
 		}
 		);
 	}
-
+	/* リソースのノード情報を取得する */
 	node = rsc->fns->location(rsc, NULL, FALSE);
 	if(node == NULL) {
+		/* ノード情報が取れない場合はNULLを返す */
 		do_crm_log_unlikely(level, "%s cannot be master: not allocated", rsc->id);
 		return NULL;
 	
 	} else if(is_not_set(rsc->flags, pe_rsc_managed)) {
+	    /* 対象リソースのpe_rsc_managedfフラグがセットされていない場合(UNMANAGEDリソース) */
 	    if(rsc->fns->state(rsc, TRUE) == RSC_ROLE_MASTER) {
+			/* リソースがすでにMASTREの場合 */
 		crm_notice("Forcing unmanaged master %s to remain promoted on %s",
 			   rsc->id, node->details->uname);
 
 	    } else {
+			/* MASTER状態でない場合はNULLを返す */
 		return NULL;
 	    }
 
 	} else if(rsc->priority < 0) {
+		/* リソースの優先度が0未満の場合も、NULLを返す */
 		do_crm_log_unlikely(level, "%s cannot be master: preference: %d",
 			   rsc->id, rsc->priority);
 		return NULL;
 
 	} else if(can_run_resources(node) == FALSE) {
+		/* 取得したノードではリソースは起動出来ない場合は、NULLを返す */
 		do_crm_log_unlikely(level, "Node cant run any resources: %s",
 			    node->details->uname);
 		return NULL;
 	}
-	
+	/* 親リソースのclone固有データを取得する */
 	get_clone_variant_data(clone_data, parent);
+	/* 親リソースの配置可能ノード情報に、取得したノード情報が含まれるかどうかチェックする */
 	local_node = pe_find_node_id(
 		parent->allowed_nodes, node->details->id);
 
 	if(local_node == NULL) {
+		/* 含まれない場合はNULLを返す */
 		crm_err("%s cannot run on %s: node not allowed",
 			rsc->id, node->details->uname);
 		return NULL;
 
 	} else if(local_node->count < clone_data->master_node_max
 		  || is_not_set(rsc->flags, pe_rsc_managed)) {
+		/* まだ配置可能なmaster数の場合か、pe_rsc_managedがセットされていない場合(UNMANAGEDリソース) */
+		/* 検索したノード情報を返す */
 		return local_node;
 
 	} else {
 		do_crm_log_unlikely(level, "%s cannot be master on %s: node full",
 			    rsc->id, node->details->uname);
 	}
-
+	/* NULLを返す */
 	return NULL;
 }
 
@@ -496,19 +508,20 @@ static void set_role_slave(resource_t *rsc, gboolean current)
 	set_role_slave(child_rsc, current);
 	);
 }
-
+/* 対象リソースのnext_roleをMASTERにセットする */
 static void set_role_master(resource_t *rsc) 
 {
     if(rsc->next_role == RSC_ROLE_UNKNOWN) {
+		/* 対象リソースのnext_roleがRSC_ROLE_UNKNOWNの場合は、next_roleをRSC_ROLE_MASTERにセットする */
 	rsc->next_role = RSC_ROLE_MASTER;
     }
-    
+    /* 対象リソースの全ての子リソースに対しても、next_roleをMASTERにセットする */
     slist_iter(
 	child_rsc, resource_t, rsc->children, lpc,
 	set_role_master(child_rsc);
 	);
 }
-
+/* MASTERリソースのcolor処理 */
 node_t *
 master_color(resource_t *rsc, pe_working_set_t *data_set)
 {
@@ -518,6 +531,7 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 	enum rsc_role_e next_role = RSC_ROLE_UNKNOWN;
 	
 	clone_variant_data_t *clone_data = NULL;
+	/* クローン固有データを取得する */
 	get_clone_variant_data(clone_data, rsc);
 
     if(is_not_set(rsc->flags, pe_rsc_provisional)) {
@@ -529,12 +543,13 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
     }
 
 	apply_master_prefs(rsc);
-
+	/* クローンのcolor処理を実行する */
 	clone_color(rsc, data_set);
 	
     set_bit(rsc->flags, pe_rsc_allocating);
 
 	/* count now tracks the number of masters allocated */
+	/* マスターリソースの配置可能ノード情報リストの起動している（起動予定も含む）リソース数を０リセットする 	*/
 	slist_iter(node, node_t, rsc->allowed_nodes, lpc,
 		   node->count = 0;
 		);
@@ -613,6 +628,7 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 	master_promotion_order(rsc);
 
 	/* mark the first N as masters */
+	/* 全てのmasterリソースの子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
 
@@ -634,23 +650,27 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 		    crm_debug_2("Not supposed to promote child: %s", child_rsc->id);
 		    
 		} else if(promoted < clone_data->master_max || is_not_set(rsc->flags, pe_rsc_managed)) {
+			/* promotedカウント(Master状態数がmaster_max以下か、リソースのpe_rsc_managedがセットされていない場合(UNMANAGEDリソースの場合 */
+			/* master可能かチェックする */
 			chosen = can_be_master(child_rsc);
 		}
 
 		crm_debug("%s master score: %d", child_rsc->id, child_rsc->priority);
 		
 		if(chosen == NULL) {
+			/* chosenが未セットの場合は、Slave状態をセットして次の子リソースを処理する */
 		    set_role_slave(child_rsc, FALSE);
 		    continue;
 		}
-
+		/* カウントアップ */
 		chosen->count++;
 		crm_info("Promoting %s (%s %s)",
 			 child_rsc->id, role2text(child_rsc->role), chosen->details->uname);
+		/* Master状態をセットして、promotedカウントをアップする */
 		set_role_master(child_rsc);
 		promoted++;		
 		);
-	
+	/* 固有データの配置master数にpromotedカウンタをセットする */
 	clone_data->masters_allocated = promoted;
 	crm_info("%s: Promoted %d instances of a possible %d to master",
 		 rsc->id, promoted, clone_data->master_max);

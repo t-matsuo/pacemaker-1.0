@@ -37,34 +37,39 @@ void child_starting_constraints(
 	clone_variant_data_t *clone_data, 
 	resource_t *self, resource_t *child, resource_t *last,
 	pe_working_set_t *data_set);
-
+/* 親cloneリソースの配置ノード情報から、指定ノードを検索する */
 static node_t *
 parent_node_instance(const resource_t *rsc, node_t *node)
 {
 	node_t *ret = NULL;
 	if(node != NULL) {
+		/* ノードがNULLでない場合、親cloneリソースの配置ノード情報から、指定ノード情報を検索する */
 		ret = pe_find_node_id(
 			rsc->parent->allowed_nodes, node->details->id);
 	}
+	/* 検索結果を返す */
 	return ret;
 }
-
+/* エラーが発生しているかどうかのチェック */
 static gboolean did_fail(const resource_t *rsc)
 {
     if(is_set(rsc->flags, pe_rsc_failed)) {
+		/* pe_rsc_failedフラグがセットされている場合は、TRUE */
 	return TRUE;
     }
-
+	/* 全ての子リソースを処理する */
     slist_iter(
 	child_rsc, resource_t, rsc->children, lpc,
 	if(did_fail(child_rsc)) {
+			/* 子リソースのエラーをチェックしてエラーならTRUE */
 	    return TRUE;
 	}
 	);
+	/* 全子リソースにエラーがなければFALSE */
     return FALSE;
 }
 
-
+/* クローンの子リソースをソートする */
 gint sort_clone_instance(gconstpointer a, gconstpointer b)
 {
 	int level = LOG_DEBUG_3;
@@ -330,43 +335,58 @@ gint sort_clone_instance(gconstpointer a, gconstpointer b)
 	do_crm_log_unlikely(level, "%s == %s: default %d", resource1->id, resource2->id, node2->weight);
 	return 0;
 }
-
+/* 対象ノードでの、cloneリソースのインスタンスの起動可否を決定する */
+/* 起動可能な場合は、配置可能なノードを返すが、起動不可なノードの場合には、その対象ノードのスコアを-INFINITYにセットする */
 static node_t *
 can_run_instance(resource_t *rsc, node_t *node)
 {
 	node_t *local_node = NULL;
 	clone_variant_data_t *clone_data = NULL;
 	if(can_run_resources(node) == FALSE) {
+		/* 対象ノードでリソースが起動できない場合 */
+		/* ※配置不可 */
 		goto bail;
 
 	} else if(is_set(rsc->flags, pe_rsc_orphan)) {
+		/* 対象リソースがpe_rsc_orphanな場合 */
+		/* ※配置不可 */
 		goto bail;
 	}
-
+	/* 対象ノードが親cloneリソースの配置ノードリスト（allowed_nodes）に含まれるか検索する */
 	local_node = parent_node_instance(rsc, node);
+	/* 親cloneリソースの固有データを取得する */
 	get_clone_variant_data(clone_data, rsc->parent);
 
 	if(local_node == NULL) {
+		/* 対象ノードが親cloneリソースの配置ノードリストに含まれない場合 */
+		/* ※配置不可 */
 		crm_warn("%s cannot run on %s: node not allowed",
 			rsc->id, node->details->uname);
 		goto bail;
 
 	} else if(local_node->count < clone_data->clone_node_max) {
+		/* 対象ノードが親cloneリソースの配置ノードに含まれて、まだ、clone_node_maxに達していない場合 */
+		/* 配置ノードを返す */
 		return local_node;
 
 	} else {
+		/* 重要・すでに対象クローンがこのノードで起動していて、それがclone_node_maxを超えている場合は、 */
+		/* 他のノードで起動する為に、bailでこのノードのスコアを-INFINTYにセットする */
+		/* この仕組みを使って、各ノードに順にcloneを配置できる */
 		crm_debug_2("%s cannot run on %s: node full",
 			    rsc->id, node->details->uname);
 	}
 
   bail:
 	if(node) {
-	    common_update_score(rsc, node->details->id, -INFINITY);
+		/* 対象ノードが配置不可なので、-INFINITYをセットする */
+		/* ※colorでも配置ノードとしては処理されなくなる */
+		common_update_score(rsc, node->details->id, -INFINITY);
 	}
 	return NULL;
 }
 
-
+/* cloneリソースの子リソースのcolor処理 */
 static node_t *
 color_instance(resource_t *rsc, pe_working_set_t *data_set) 
 {
@@ -376,52 +396,74 @@ color_instance(resource_t *rsc, pe_working_set_t *data_set)
 	crm_debug_2("Processing %s", rsc->id);
 
 	if(is_not_set(rsc->flags, pe_rsc_provisional)) {
+		/* すでに、native_assign_node()処理されたリソースに関しては、処理しない */
+		/* location(native_location)を実行して、決定している配置先のノード情報allocated_toを返す */
 		return rsc->fns->location(rsc, NULL, FALSE);
 
 	} else if(is_set(rsc->flags, pe_rsc_allocating)) {
+		/* pe_rsc_allocatingがセットされているリソースも処理しない */
 		crm_debug("Dependency loop detected involving %s", rsc->id);
 		return NULL;
 	}
 
 	if(rsc->allowed_nodes) {
+		/* 子リソースの配置ノード情報がすでに存在する場合 */
+		/* 全ての配置ノード情報で、リソースが実行可能かどうかチェックする */
+		/* ※can_run_instance内で、実行不可能なノードに関しては(既に起動しているノード)、-INFINITYがセットされる */
 		slist_iter(try_node, node_t, rsc->allowed_nodes, lpc,
 			   can_run_instance(rsc, try_node);
 			);
 	}
-
+	/*******************************************************************************/
+	/* 子のリソース毎のcolor処理を実行する(colocationなどの反映と実行ノードの決定) */
+	/*******************************************************************************/
 	chosen = rsc->cmds->color(rsc, data_set);
 	if(chosen) {
+		/* 子リソース毎のcolor処理の結果、子リソースの実行ノードが決定した場合 */
+		
+		/* 親リソースの配置ノードリストから、子リソースの実行ノードを検索する */
 		local_node = pe_find_node_id(
 			rsc->parent->allowed_nodes, chosen->details->id);
 
 		if(local_node) {
+			/* 親リソースの配置ノードに子リソースの実行ノードが含まれた場合 */
+		    /* 起動リソース数をカウントアップする */
 		    local_node->count++;
 		} else if(is_set(rsc->flags, pe_rsc_managed)) {
 		    /* what to do? we can't enforce per-node limits in this case */
+			/* 親リソースの配置ノードに子リソースの実行ノードが含まれれない場合で、 pe_rsc_managedフラグがセットされている場合 */
 		    crm_config_err("%s not found in %s (list=%d)",
 				   chosen->details->id, rsc->parent->id,
 				   g_list_length(rsc->parent->allowed_nodes));
 		}
 	}
-
+	/* 実行ノードを返す */
 	return chosen;
 }
 
 static void append_parent_colocation(resource_t *rsc, resource_t *child, gboolean all) 
 {
+	/************************* 親リソース(cloneリソース)に対するcolocationタグのrsc指定を処理する ***********************/
+	/* 親リソース(cloneリソース)情報のrsc_consリスト(リソースに対するcolocation情報のrsc指定)をすべて処理する */
     slist_iter(cons, rsc_colocation_t, rsc->rsc_cons, lpc,
 	       if(all || cons->score < 0 || cons->score == INFINITY) {
+				/* allがTRUEか、処理対象のcolocationがマイナス値指定か、INFINTIYの場合は子リソースのrsc_consリストに親リソースの情報を */
+				/* 追加する */
 		   child->rsc_cons = g_list_append(child->rsc_cons, cons);
 	       }
 	       
 	);
+	/************************* 親リソース(cloneリソース)に対するcolocationタグのwith-rsc指定を処理する ***********************/
+	/* 親リソース(cloneリソース)情報のrsc_cons_lnsリスト(リソースに対するcolocation情報のwith-rsc指定)をすべて処理する */
     slist_iter(cons, rsc_colocation_t, rsc->rsc_cons_lhs, lpc,
 	       if(all || cons->score < 0) {
+				/* allがTRUEか、処理対象のcolocationがマイナス値指定の場合は子リソースのrsc_consリストに親リソースの情報を */
+				/* 追加する */
 		   child->rsc_cons_lhs = g_list_append(child->rsc_cons_lhs, cons);
 	       }
 	);
 }
-
+/* cloneリソースのcolor処理 */
 node_t *
 clone_color(resource_t *rsc, pe_working_set_t *data_set)
 {
@@ -431,9 +473,11 @@ clone_color(resource_t *rsc, pe_working_set_t *data_set)
 	get_clone_variant_data(clone_data, rsc);
 
 	if(is_not_set(rsc->flags, pe_rsc_provisional)) {
+		/* すでに、native_assign_node()処理されたリソースに関しては、処理しない */
 		return NULL;
 
 	} else if(is_set(rsc->flags, pe_rsc_allocating)) {
+		/* pe_rsc_allocatingがセットされているリソースも処理しない */
 		crm_debug("Dependency loop detected involving %s", rsc->id);
 		return NULL;
 	}
@@ -444,27 +488,39 @@ clone_color(resource_t *rsc, pe_working_set_t *data_set)
 	/* this information is used by sort_clone_instance() when deciding in which 
 	 * order to allocate clone instances
 	 */
+	/************************* このリソースに対するcolocationタグのwith-rsc指定を処理する ***********************/
+	/* このリソース情報のrsc_cons_lhsリスト(このリソースに対する他のリソースからcolocation情報でwith-rsc指定されている情報）をすべて処理する */
+	/* ※このリソースが、他のリソースからcolocation情報でwith-rsc指定されていなければ、処理されない事になる */
+	/* ※ rsc=X with-rsc=A																			*/
+	/*    rsc=Y with-rsc=Aのような場合、このクローンリソースがAだった場合に、処理を実行することになる */
 	slist_iter(
 	    constraint, rsc_colocation_t, rsc->rsc_cons_lhs, lpc,
-	    
+	    /* このリソースの配置可能なノードリストに、colocation指定のrsc指定リソースのmerge_weights処理を行う */
+	    /*   with-rsc指定されている側のリソースの配置可能なノードリスト(allowed_nodes)のweightに、 */
+	    /*   rsc指定されているリソースの置可能なノードリスト(allowed_nodes)のweightをマージ（反映する) */
 	    rsc->allowed_nodes = constraint->rsc_lh->cmds->merge_weights(
 		constraint->rsc_lh, rsc->id, rsc->allowed_nodes,
 		constraint->node_attribute, constraint->score/INFINITY, TRUE, TRUE);
 	    );
-	
+	/* スコアをダンプする */
 	dump_node_scores(show_scores?0:scores_log_level, rsc, __FUNCTION__, rsc->allowed_nodes);
 	
 	/* count now tracks the number of clones currently allocated */
+	/* クローンリソースの配置可能ノード情報リストの起動している（起動予定も含む）リソース数を０リセットする 	*/
 	slist_iter(node, node_t, rsc->allowed_nodes, lpc,
 		   node->count = 0;
 		);
-	
+	/* クローンリソースの全ての子リソースを処理する */
+	/*   ※実行中の子リソースを処理 */
 	slist_iter(child, resource_t, rsc->children, lpc,
 		   if(g_list_length(child->running_on) > 0) {
+				/* 子リソースのrunning_onノード情報を取りだす */
 			   node_t *child_node = child->running_on->data;
+			   /* 子リソースの起動しているノード情報から親ノード情報を取り出す */
 			   node_t *local_node = parent_node_instance(
 				   child, child->running_on->data);
 			   if(local_node) {
+					/* 親ノードで起動中のリソース数をカウントアップする */
 				   local_node->count++;
 			   } else {
 				   crm_err("%s is running on %s which isn't allowed",
@@ -472,25 +528,29 @@ clone_color(resource_t *rsc, pe_working_set_t *data_set)
 			   }
 		   }
 		);
-	
+	/* クローンリソースの子リソースをソートする */
 	rsc->children = g_list_sort(rsc->children, sort_clone_instance);
 
 	/* count now tracks the number of clones we have allocated */
+	/* クローンリソースの配置可能ノード情報リストの起動している（起動予定も含む）リソース数を０リセットする 	*/
 	slist_iter(node, node_t, rsc->allowed_nodes, lpc,
 		   node->count = 0;
 		);
-
+	/* クローンリソースのリソースが配置可能なノード情報のリストをweightでソートする */
 	rsc->allowed_nodes = g_list_sort(
 		rsc->allowed_nodes, sort_node_weight);
-
+	/* クローンリソースのリソースが配置可能なノード情報のリストを全て処理する */
 	slist_iter(node, node_t, rsc->allowed_nodes, lpc,
+			/* 配置可能なノード情報でリソースが起動可能な場合は、カウントアップする */
 		   if(can_run_resources(node)) {
 		       available_nodes++;
 		   }
 	    );
-	
+	/* クローンリソースの全ての子リソース情報を処理する */
 	slist_iter(child, resource_t, rsc->children, lpc,
 		   if(allocated >= clone_data->clone_max) {
+				/* allocatedがclone_maxに達した場合は、全ての子リソースの配置可能なノード情報のweightに-INFINITYをセットする */
+				/* ※これが実行されるとclone_max以上のクローンの子リソースは配置不可 */
 			   crm_debug("Child %s not allocated - limit reached", child->id);
 			   resource_location(child, NULL, -INFINITY, "clone_color:limit_reached", data_set);
 
@@ -498,32 +558,44 @@ clone_color(resource_t *rsc, pe_working_set_t *data_set)
 		       /* Only include positive colocation preferences of dependant resources
 			* if not every node will get a copy of the clone
 			*/
+				/* 起動可能なクラスタ構成ノード数が、まだ、clone_maxに達していない場合 */
+				/* 親リソースのcolocation指定を子リソースに反映する */
+				/* 重要：この時はcloneリソースのcolocationでwith-src指定されている分はセットされるので注意 */
 		       append_parent_colocation(rsc, child, TRUE);
 
 		   } else {
+				/* 起動可能なクラスタ構成ノード数がちょうど、clone_maxの場合 */
+				/* 親リソースのcolocation指定を子リソースに反映する */
+				/* 重要：この時はcloneリソースのcolocationでwith-src指定されている分はセットされないので注意 */
+				/* よって、colocationをもったリソースの１次故障→cloneの２次故障でも、故障cloneが単体で処理される */
 		       append_parent_colocation(rsc, child, FALSE);
 		   }
-		   
+		   /*******************************/
+		   /* 子リソースのcolorを処理する */
+		   /*******************************/
 		   if(color_instance(child, data_set)) {
+				/* 配置ノードが決定すれば配置カウンタをインクリメントする */
 			   allocated++;
 		   }
 		);
 
 	crm_debug("Allocated %d %s instances of a possible %d",
 		  allocated, rsc->id, clone_data->clone_max);
-
+	/* pe_rsc_provisionalフラグ、pe_rsc_allocatingフラグをクリアする */
 	clear_bit(rsc->flags, pe_rsc_provisional);
 	clear_bit(rsc->flags, pe_rsc_allocating);
 	
 	return NULL;
 }
-
+/* 生成された子リソースのアクション情報から */
+/* cloneリソースの固有データのstopping,starting,activeフラグをセットする */
 static void
 clone_update_pseudo_status(
     resource_t *rsc, gboolean *stopping, gboolean *starting, gboolean *active) 
 {
 	if(rsc->children) {
 	    slist_iter(child, resource_t, rsc->children, lpc,
+		/* 子リソースがある場合、全ての子リソースのclone_update_pseudo_statusを処理する */
 		       clone_update_pseudo_status(child, stopping, starting, active)
 		);
 	    return;
@@ -534,32 +606,39 @@ clone_update_pseudo_status(
 	CRM_ASSERT(stopping != NULL);
 
 	if(rsc->running_on) {
+		/* 対象リソースのrunning_onリスト(実行ノードリスト)がＮＵＬＬでない場合は、activeにTRUEをセットする */
 	    *active = TRUE;
 	}
-	
+	/* 対象リソースの全てのアクションを処理する */
 	slist_iter(
 		action, action_t, rsc->actions, lpc,
 
 		if(*starting && *stopping) {
+			/* すでに、フラグがTRUEなら処理しない */
 			return;
 
 		} else if(action->optional) {
+			/* オプションのアクションは処理しない */
 			crm_debug_3("Skipping optional: %s", action->uuid);
 			continue;
 
 		} else if(action->pseudo == FALSE && action->runnable == FALSE){
+			/* PSEUDOでないアクションで、実行待ちのアクションも処理しない */
 			crm_debug_3("Skipping unrunnable: %s", action->uuid);
 			continue;
 
 		} else if(safe_str_eq(RSC_STOP, action->task)) {
+			/* stopアクションの場合は、stoppingフラグをセット */
 			crm_debug_2("Stopping due to: %s", action->uuid);
 			*stopping = TRUE;
 
 		} else if(safe_str_eq(RSC_START, action->task)) {
+			/* startアクションの場合 */
 			if(action->runnable == FALSE) {
 				crm_debug_3("Skipping pseudo-op: %s run=%d, pseudo=%d",
 					    action->uuid, action->runnable, action->pseudo);
 			} else {
+				/* 実行可能なアクションであれば、startingフラグをセット */
 				crm_debug_2("Starting due to: %s", action->uuid);
 				crm_debug_3("%s run=%d, pseudo=%d",
 					    action->uuid, action->runnable, action->pseudo);
@@ -569,47 +648,60 @@ clone_update_pseudo_status(
 		);
 
 }
-
+/* アクションの検索処理 */
 static action_t *
 find_rsc_action(resource_t *rsc, const char *key, gboolean active_only, GListPtr *list)
 {
     action_t *match = NULL;
     GListPtr possible = NULL;
     GListPtr active = NULL;
+    /* リソースのアクション情報リストから該当キーのアクションリストを取得する */
     possible = find_actions(rsc->actions, key, NULL);
 
     if(active_only) {
+		/* activeオンリーの検索の場合 */
 	slist_iter(op, action_t, possible, lpc,
 		   if(op->optional == FALSE) {
-		       active = g_list_append(active, op);
+				/* 検索したアクションリストの中で */
+				/* 必須のアクションのみを作業リストに積み上げる */
+				active = g_list_append(active, op);
 		   }
 	    );
 	
 	if(active && g_list_length(active) == 1) {
+		/* activeのみを検索した場合で、１件のアクションだけだった場合 */
+		/* 結果に先頭のアクションをセットする */
 	    match = g_list_nth_data(active, 0);
 	}
 	
 	if(list) {
+			/* 返却リストが存在する場合 */
+			/* 返却リストに作業リストをセットして、ポインタにはNULLをセット */
 	    *list = active; active = NULL;
 	}
 	
     } else if(possible && g_list_length(possible) == 1) {
+		/* activeオンリーでない場合で、検索結果がある場合で、１件のアクションだけだった場合 */
+		/* 結果に最初の検索結果の先頭アクションをセットする */
 	match = g_list_nth_data(possible, 0);
 
     } if(list) {
+		/* 返却リストが存在する場合 */
+		/* １件以上の検索結果がある場合は、返却リストにセットして、ポインタにはNULLをセット */
 	*list = possible; possible = NULL;
     }    
-
+	/* 作業リストを解放する */
     if(possible) {
 	g_list_free(possible);
     }
     if(active) {
 	g_list_free(active);
     }
-    
+    /* １件のみの場合の検索結果を返す */
     return match;
 }
-
+/* 子リソースのlast_startとstarアクションとstopとlast_stopアクションのactions_after,actions_beforeを生成する */
+/* ※子リソース間のstart->start,stop->stopのactions_after,actions_beforeを生成することになる */
 static void
 child_ordering_constraints(resource_t *rsc, pe_working_set_t *data_set)
 {
@@ -620,41 +712,50 @@ child_ordering_constraints(resource_t *rsc, pe_working_set_t *data_set)
     action_t *last_start = NULL;
     gboolean active_only = TRUE; /* change to false to get the old behavior */
     clone_variant_data_t *clone_data = NULL;
+    /* clone固有データを取得する */
     get_clone_variant_data(clone_data, rsc);
 
     if(clone_data->ordered == FALSE) {
+		/* 固有データのorderedがFALSEの場合は処理しない */
 	return;
     }
-    
+    /* 全ての子リソース情報を処理する */
     slist_iter(
 	child, resource_t, rsc->children, lpc,
-
+		/* 子リソースのstopキーを生成する */
 	key = stop_key(child);
+		/* stopキーのアクションを子リソースのアクション情報から検索する */
 	stop = find_rsc_action(child, key, active_only, NULL);
 	crm_free(key);
-	
+		/* 子リソースのstartキーを生成する */
 	key = start_key(child);
+		/* startキーのアクションを子リソースのアクション情報から検索する */
 	start = find_rsc_action(child, key, active_only, NULL);
 	crm_free(key);
 	
 	if(stop) {
+			/* stopアクションが存在した場合 */
 	    if(last_stop) {
 		/* child/child relative stop */
+				/* 先頭リソース以外の場合は、stopとlast_stopのactions_after,actions_beforeを生成する */
 		order_actions(stop, last_stop, pe_order_implies_left);
 	    }
+	    	/* stopアクション情報ポインタを保存する */
 	    last_stop = stop;
 	}
 	
 	if(start) {
 	    if(last_start) {
 		/* child/child relative start */
+			/* 先頭リソース以外の場合は、last_startとstarのactions_after,actions_beforeを生成する */
 		order_actions(last_start, start, pe_order_implies_left);
 	    }
+	    	/* startアクション情報ポインタを保存する */
 	    last_start = start;
 	}
 	);
 }
-
+/* cloneリソースのアクション生成処理 */
 void clone_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 {
 	gboolean child_active = FALSE;
@@ -670,57 +771,72 @@ void clone_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 	resource_t *last_start_rsc = NULL;
 	resource_t *last_stop_rsc = NULL;
 	clone_variant_data_t *clone_data = NULL;
-
+	/* cloneの固有データを取得する */
 	get_clone_variant_data(clone_data, rsc);
 
 	crm_debug_2("Creating actions for %s", rsc->id);
-	
+	/* cloneリソースの全ての子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
+		/* 子リソースのアクション生成処理を実行する */
 		child_rsc->cmds->create_actions(child_rsc, data_set);
+		/* 生成された子リソースのアクション情報から */
+		/* cloneリソースの固有データのstopping,starting,activeフラグをセットする */
 		clone_update_pseudo_status(
 		    child_rsc, &child_stopping, &child_starting, &child_active);
 		
 		if(is_set(child_rsc->flags, pe_rsc_starting)) {
+			/* 開始している最後の子リソースをセットする */
 			last_start_rsc = child_rsc;
 		}
 		if(is_set(child_rsc->flags, pe_rsc_stopping)) {
+			/* 停止している最後の子リソースをセットする */
 			last_stop_rsc = child_rsc;
 		}
 		);
 
 	/* start */
+	/* cloneのstartアクションを生成する */
 	start = start_action(rsc, NULL, !child_starting);
 	started = custom_action(rsc, started_key(rsc),
 				RSC_STARTED, NULL, !child_starting, TRUE, data_set);
 
 	start->pseudo = TRUE;
 	start->runnable = TRUE;
+	/* cloneのstartedアクションを生成する */
 	started->pseudo = TRUE;
 	started->priority = INFINITY;
 
 	if(child_active || child_starting) {
+		/* 子リソースのどれかのstartアクションが実行可能か、すでに起動している場合(runnning_onリストに存在)は */
+		/* startedも実行可能にする */
 	    started->runnable = TRUE;
 	}
-	
+	/* 子リソースのstartアクションとstopアクションのactions_after,actions_beforeを生成する */
+    /* ※子リソース間のstart->start,stop->stopのactions_after,actions_beforeを生成することになる */
 	child_ordering_constraints(rsc, data_set);
 	child_starting_constraints(clone_data, rsc, NULL, last_start_rsc, data_set);
 	if(clone_data->start_notify == NULL) {
+		/* notifyのフラグがセットされている場合は */
 	    clone_data->start_notify = create_notification_boundaries(rsc, RSC_START, start, started, data_set);
 	}
 	
 	/* stop */
+	/* cloneのstopアクションを生成する */
 	stop = stop_action(rsc, NULL, !child_stopping);
 	stopped = custom_action(rsc, stopped_key(rsc),
 				RSC_STOPPED, NULL, !child_stopping, TRUE, data_set);
 
 	stop->pseudo = TRUE;
 	stop->runnable = TRUE;
+	/* cloneのstoppedアクションを生成する */
 	stopped->pseudo = TRUE;
 	stopped->runnable = TRUE;
 	stopped->priority = INFINITY;
+	/* cloneリソースとその子リソースのstopの内部ORDER情報を処理する */
 	child_stopping_constraints(clone_data, rsc, NULL, last_stop_rsc, data_set);
 	if(clone_data->stop_notify == NULL) {
+		/* notifyのフラグがセットされている場合は */
 	    clone_data->stop_notify = create_notification_boundaries(rsc, RSC_STOP, stop, stopped, data_set);
 
 	    if(clone_data->stop_notify && clone_data->start_notify) {
@@ -728,7 +844,7 @@ void clone_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 	    }
 	}
 }
-
+/* cloneリソースとその子リソースのstartの内部制約を処理する */
 void
 child_starting_constraints(
 	clone_variant_data_t *clone_data,
@@ -736,36 +852,43 @@ child_starting_constraints(
 	pe_working_set_t *data_set)
 {
 	if(child == NULL && last == NULL) {
+		/* 子リソースがなくて、最後の子リソースもない時は処理しない */
 	    crm_debug("%s has no active children", rsc->id);
 	    return;
 	}
     
 	if(child != NULL) {
+		/* 子リソースの場合 */
+		/* clone親リソースのstartと、子リソースのstartのORDER情報をセットする */
 		order_start_start(
 		    rsc, child, pe_order_runnable_left|pe_order_implies_left_printed);
-		
+		/* 子リソースのstartとclone親リソースのSTARTEDのORDER情報をセットする */
 		new_rsc_order(child, RSC_START, rsc, RSC_STARTED, 
 			      pe_order_implies_right_printed, data_set);
 	}
-	
+	/* 以下は未実行(FALASE &&..) */
 	if(FALSE && clone_data->ordered) {
+		/* clone親リソースの固有データのORDEREDがTRUEの場合 */
 		if(child == NULL) {
 		    /* last child start before global started */
+		    /* 最後の子リソースの場合は、最後の子リソースのstartと、clone親リソースのSTARTEDのORDER情報をセットする */
 		    new_rsc_order(last, RSC_START, rsc, RSC_STARTED, 
 				  pe_order_runnable_left, data_set);
 
 		} else if(last == NULL) {
 			/* global start before first child start */
+		    /* 最初の子リソースの場合は、clone親リソースのstartと最初の子リソースのstartのORDER情報をセットする */
 			order_start_start(
 				rsc, child, pe_order_implies_left);
 
 		} else {
 			/* child/child relative start */
+			/* 子リソースの間のstartのORDER情報をセットする */
 			order_start_start(last, child, pe_order_implies_left);
 		}
 	}
 }
-
+/* cloneリソースとその子リソースのstopの内部制約を処理する */
 void
 child_stopping_constraints(
 	clone_variant_data_t *clone_data,
@@ -773,64 +896,76 @@ child_stopping_constraints(
 	pe_working_set_t *data_set)
 {
 	if(child == NULL && last == NULL) {
+		/* 子リソースがなくて、最後の子リソースもない時は処理しない */
 	    crm_debug("%s has no active children", rsc->id);
 	    return;
 	}
 
 	if(child != NULL) {
+		/* 子リソースの場合 */
+		/* clone親リソースのstopと、子リソースのstopのODER情報をセットする */
 		order_stop_stop(rsc, child, pe_order_shutdown|pe_order_implies_left_printed);
-		
+		/* 子リソースのstp@とclone親リソースのSTOPPEDのORDER情報をセットする */
 		new_rsc_order(child, RSC_STOP, rsc, RSC_STOPPED,
 			      pe_order_implies_right_printed, data_set);
 	}
 	
+	/* 以下は未実行(FALASE &&..) */
 	if(FALSE && clone_data->ordered) {
+		/* clone親リソースの固有データのORDEREDがTRUEの場合 */
 		if(last == NULL) {
 		    /* first child stop before global stopped */
+		    /* 最後の子リソースの場合は、最後の子リソースのstopと、clone親リソースのSTOPPEDのORDER情報をセットする */
 		    new_rsc_order(child, RSC_STOP, rsc, RSC_STOPPED,
 				  pe_order_runnable_left, data_set);
 			
 		} else if(child == NULL) {
 			/* global stop before last child stop */
+		    /* 最初の子リソースの場合は、clone親リソースのstopと最初の子リソースのstopのORDER情報をセットする */
 			order_stop_stop(
 				rsc, last, pe_order_implies_left);
 		} else {
 			/* child/child relative stop */
+			/* 子リソースの間のstopORDER情報をセットする */
 			order_stop_stop(child, last, pe_order_implies_left);
 		}
 	}
 }
 
-
+/* cloneリソースの内部制約を処理する */
 void
 clone_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 {
 	resource_t *last_rsc = NULL;	
 	clone_variant_data_t *clone_data = NULL;
+	/* 固有データを取得する */
 	get_clone_variant_data(clone_data, rsc);
-
+	/* native_internal_constraintsを実行する */
 	native_internal_constraints(rsc, data_set);
 	
 	/* global stop before stopped */
+	/* cloneリソースのSTOPと、STOPPEDのORDER情報を生成する */
 	new_rsc_order(rsc, RSC_STOP, rsc, RSC_STOPPED, pe_order_runnable_left, data_set);
 
 	/* global start before started */
+	/* cloneリソースのSTARTと、STARTEDのORDER情報を生成する */
 	new_rsc_order(rsc, RSC_START, rsc, RSC_STARTED, pe_order_runnable_left, data_set);
 	
 	/* global stopped before start */
+	/* cloneリソースのSTOPPEDと、STARTのORDER情報を生成する */
 	new_rsc_order(rsc, RSC_STOPPED, rsc, RSC_START, pe_order_optional, data_set);
-	
+	/* 全ての子リソース情報を処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
-
+		/* 子リソースの内部制約を処理する */
 		child_rsc->cmds->internal_constraints(child_rsc, data_set);
-
+		/* cloneリソースと子リソースのstartの内部制約を処理する */
 		child_starting_constraints(
 			clone_data, rsc, child_rsc, last_rsc, data_set);
-
+		/* cloneリソースと子リソースのstopの内部制約を処理する */
 		child_stopping_constraints(
 			clone_data, rsc, child_rsc, last_rsc, data_set);
-
+		/* 最後の子リソース情報をセットする */		
 		last_rsc = child_rsc;
 		);
 }
@@ -852,8 +987,10 @@ static resource_t*
 find_compatible_child_by_node(
     resource_t *local_child, node_t *local_node, resource_t *rsc, enum rsc_role_e filter, gboolean current)
 {
+
 	node_t *node = NULL;
 	clone_variant_data_t *clone_data = NULL;
+	/* clone固有データを取得する */
 	get_clone_variant_data(clone_data, rsc);
 	
 	if(local_node == NULL) {
@@ -889,14 +1026,19 @@ resource_t*
 find_compatible_child(
     resource_t *local_child, resource_t *rsc, enum rsc_role_e filter, gboolean current)
 {
-	resource_t *pair = NULL;
+	/* 指定したclone子リソースがlocalノードで起動しているかどうか検索する */
+	/* 起動している場合は、その子リソース情報 */
+	/* 起動していない場合は、NULL */	resource_t *pair = NULL;
 	GListPtr scratch = NULL;
 	node_t *local_node = NULL;
 	clone_variant_data_t *clone_data = NULL;
+	/* clone固有データを取得する */
 	get_clone_variant_data(clone_data, rsc);
 	
+	/* 子リソースのノード情報を取得する(リスト取得なし、単一なノード情報のみ取得) */
 	local_node = local_child->fns->location(local_child, NULL, current);
 	if(local_node) {
+		/* ノード情報が取得できない場合は処理しない */
 	    return find_compatible_child_by_node(local_child, local_node, rsc, filter, current);
 	}
 
@@ -919,6 +1061,7 @@ find_compatible_child(
 	return pair;
 }
 
+/* colocationのrsc指定リソース側の処理 */
 void clone_rsc_colocation_lh(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
 {
@@ -939,7 +1082,7 @@ void clone_rsc_colocation_lh(
 
 	return;
 }
-
+/* colocationのwith-rsc指定リソース側の処理 */
 void clone_rsc_colocation_rh(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
 {
@@ -1110,16 +1253,23 @@ static gboolean detect_restart(resource_t *rsc)
     
     /* Look for restarts */
     action_t *start = NULL;
+    /* 検索キーにstartをセットする */
     char *key = start_key(rsc);
+    /* 対象リソースのアクション情報リストからstartアクションを検索する */
     GListPtr possible_matches = find_actions(rsc->actions, key, NULL);
     crm_free(key);
 		
     if(possible_matches) {
+		/* 対象リソースのアクション情報リストにstartアクションが設定されている場合 */
+		/* 検索したstartアクションを取得する */
 	start = possible_matches->data;
+		/* 検索リストを解放する */
 	g_list_free(possible_matches);
     }
 		
     if(start != NULL && start->optional == FALSE) {
+		/* startアクションが検索できた場合で、アクションのoptionalがFALSEの場合 */
+		/* restartフラグをセットする */
 	restart = TRUE;
 	crm_debug_2("Detected a restart for %s", rsc->id);
     }
@@ -1129,12 +1279,14 @@ static gboolean detect_restart(resource_t *rsc)
 	GListPtr old_hosts = NULL;
 	GListPtr new_hosts = NULL;
 	GListPtr intersection = NULL;
-
+		/* 対象リソースのrunning_onリストをold_hostsに取得する */
 	rsc->fns->location(rsc, &old_hosts, TRUE);
+		/* 対象リソースのallocated_toリストをnew_hostsに取得する */
 	rsc->fns->location(rsc, &new_hosts, FALSE);
 	intersection = node_list_and(old_hosts, new_hosts, FALSE);
 
 	if(intersection == NULL) {
+	    	/* マージした結果のノードリストが存在しない場合は、restartフラグをセットする */
 	    restart = TRUE; /* Actually a move but the result is the same */
 	    crm_debug_2("Detected a move for %s", rsc->id);
 	}
@@ -1146,7 +1298,7 @@ static gboolean detect_restart(resource_t *rsc)
 
     return restart;
 }
-
+/* cloneリソースとprimitive,groupリソースのorder処理 */
 static void clone_rsc_order_lh_non_clone(resource_t *rsc, order_constraint_t *order, pe_working_set_t *data_set)
 {
     GListPtr hosts = NULL;
