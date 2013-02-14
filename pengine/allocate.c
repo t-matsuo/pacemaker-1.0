@@ -515,27 +515,36 @@ check_actions(pe_working_set_t *data_set)
 	}
 	);
 }
-
+/* 展開していたconstraintsタグ内のlocationタグ(状態遷移作業エリアのplacement_constraintsリスト) */
+/* を処理する */
+/* ※これによって、locationタグに指定されたスコアが、リソース情報のallowed_nodesリストにマージされる */
 static gboolean 
 apply_placement_constraints(pe_working_set_t *data_set)
 {
 	crm_debug_3("Applying constraints...");
+	/* 展開しているconstraintsタグ内のlocationタグを全て処理する */
 	slist_iter(
 		cons, rsc_to_node_t, data_set->placement_constraints, lpc,
-
+		/* リストのリソース情報(rscエレメントに対応するリソース)のrsc_location処理を実行する */
+		/* ※これによって、rsc_locationが設定されたリソースのallowed_nodesリストには、 */
+		/*   rsc_locationのスコアが反映（マージ)されたノード情報へのリストが出来る事になる */
+		/* ※注意点としては、groupリソースの場合は、groupリソースのrsc_location指定のスコアは */
+		/*   groupリソースの先頭リソースのみに反映（マージ）される点である */
 		cons->rsc_lh->cmds->rsc_location(cons->rsc_lh, cons);
 		);
 	
 	return TRUE;
 	
 }
-
+/* stickinessと、migration_threshold判断によるリソース情報のallowed_nodesリストの更新処理 */
+/* 起動済みのリソースの場合の、リソース情報のallowed_nodesリストの起動ノードのweightへのstickinessの加算 */
+/* failcountとmigration_threshold判断による、リソース情報のallowed_nodesリストの起動ノードのweightへの-INFINITNYの加算 */
 static void
 common_apply_stickiness(resource_t *rsc, node_t *node, pe_working_set_t *data_set) 
 {
 	int fail_count = 0;
 	resource_t *failed = rsc;
-
+	/* 子リソースがある場合は、すべての子リソースにこの処理を実行する */
 	if(rsc->children) {
 	    slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
@@ -547,14 +556,24 @@ common_apply_stickiness(resource_t *rsc, node_t *node, pe_working_set_t *data_se
 	if(is_set(rsc->flags, pe_rsc_managed)
 	   && rsc->stickiness != 0
 	   && g_list_length(rsc->running_on) == 1) {
+		/* リソース情報のpe_rsc_managedフラグがセットされていて、リソース情報のstickinessが０でない場合で、 */
+		/* すでにリソース情報のrunning_onリストに１件だけ登録（１つだけ起動している)されている場合 */
+	    /* リソース情報のrunning_onリストに、このノードが含まれているか検索する */
 	    node_t *current = pe_find_node_id(rsc->running_on, node->details->id);
+	    /* リソース情報のallowed_nodesリストに、このノードが含まれているか検索する */
 	    node_t *match = pe_find_node_id(rsc->allowed_nodes, node->details->id);
 
 	    if(current == NULL) {
-		
+			/* 対象リソースがこのノードで起動していない場合は、処理しない */
 	    } else if(match != NULL || is_set(data_set->flags, pe_flag_symmetric_cluster)) {
+			/* リソース情報のallowed_nodesリストに含まれているか、 */
+			/* 状態遷移作業エリアのpe_flag_symmetric_clusterフラグがセットされている場合 */
+			/* sticky_rscにこのリソース情報をセットする */
 		resource_t *sticky_rsc = rsc;
-		
+			/* このリソース情報のallowed_nodesリストの対象ノードのスコアに、 */
+			/* このリソースのstickiness値をマージする */
+			/* ※重要：これによって、起動済みのリソースの場合、リソース情報のallowed_nodesリスト内の起動している */
+			/*   ノードのweightはstickinessが加算されたweightになる */
 		resource_location(sticky_rsc, node, rsc->stickiness, "stickiness", data_set);
 		crm_debug("Resource %s: preferring current location"
 			    " (node=%s, weight=%d)", sticky_rsc->id,
@@ -569,12 +588,19 @@ common_apply_stickiness(resource_t *rsc, node_t *node, pe_working_set_t *data_se
 	}
 	
 	if(is_not_set(rsc->flags, pe_rsc_unique)) {
+		/* リソース情報のpe_rsc_uniqueフラグがセットされていない場合は、トップのリソース情報 */
+		/* 故障情報のセット用に取得する */
 	    failed = uber_parent(rsc);
 	}
-	    
+	/* リソースの故障カウントを取得する */
 	fail_count = get_failcount(node, rsc, NULL, data_set);
+		/* 故障カウントが０以上で、リソース情報のrsc->migration_thresholdが０でない場合 */
 	if(fail_count > 0 && rsc->migration_threshold != 0) {
 	    if(rsc->migration_threshold <= fail_count) {
+			/* このノードでは、故障したリソースと判定された場合は、 */
+			/* リソース情報のallowed_nodesリストの対象ノードのスコアに、 */
+			/* このリソースの-INFINITY値をマージする */
+			/* ※重要:これによって、このリソース情報のallowed_nodesリストのこのノードのスコアは-INFINITYになるので、配置されない */
 		resource_location(failed, node, -INFINITY, "__fail_limit__", data_set);
 		crm_warn("Forcing %s away from %s after %d failures (max=%d)",
 			 failed->id, node->details->uname, fail_count, rsc->migration_threshold);
@@ -706,7 +732,7 @@ apply_system_health(pe_working_set_t *data_set)
 
     return TRUE;
 }
-
+/* 受信xmlの展開処理 */
 gboolean
 stage0(pe_working_set_t *data_set)
 {
@@ -837,7 +863,8 @@ gboolean
 stage2(pe_working_set_t *data_set)
 {
 	crm_debug_3("Applying placement constraints");	
-	
+	/* 状態遷移作業エリアの全てのノード情報を処理する */
+	/* ※max_valid_nodesをカウントしているだけのループ */
 	slist_iter(
 		node, node_t, data_set->nodes, lpc,
 		if(node == NULL) {
@@ -846,15 +873,27 @@ stage2(pe_working_set_t *data_set)
 		} else if(node->weight >= 0.0 /* global weight */
 			  && node->details->online
 			  && node->details->type == node_member) {
+			/* ノード情報のweigthが０以上で、onlien状態で、typeがnode_memberの場合は、 */
+			/* 状態遷移作業エリアのmax_valid_nodes数をインクリメントする */
 			data_set->max_valid_nodes++;
 		}
 		);
-
+	/************************************************************************************************/
+	/* 展開していたconstraintsタグ内のlocationタグ(状態遷移作業エリアのplacement_constraintsリスト) */
+	/* を処理する */
+	/* ※これによって、locationタグに指定されたスコアが、リソース情報のallowed_nodesリストにマージされる */
+	/************************************************************************************************/
 	apply_placement_constraints(data_set);
 
+	/* 状態遷移作業エリアの全てのノード情報毎に、状態遷移作業エリアの全てのリソース情報を処理する */
 	slist_iter(node, node_t, data_set->nodes, lpc,
 		   slist_iter(
 		       rsc, resource_t, data_set->resources, lpc2,
+			/******************************************************************************************/
+			/* stickinessと、migration_threshold判断によるリソース情報のallowed_nodesリストの更新処理 */
+			/* 起動済みのリソースの場合の、リソース情報のallowed_nodesリストの起動ノードのweightへのstickinessの加算 */
+			/* failcountとmigration_threshold判断による、リソース情報のallowed_nodesリストの起動ノードのweightへの-INFINITNYの加算 */
+			/******************************************************************************************/
 		       common_apply_stickiness(rsc, node, data_set);
 		       );
 	    );
@@ -891,8 +930,10 @@ gboolean
 stage5(pe_working_set_t *data_set)
 {
 	/* Take (next) highest resource, assign it and create its actions */
+	/* data_setに展開された全てのresourcesリストを処理する */
 	slist_iter(
 		rsc, resource_t, data_set->resources, lpc,
+		/* リソースのcolorを処理する */
 		rsc->cmds->color(rsc, data_set);
 		);
 

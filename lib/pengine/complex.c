@@ -109,62 +109,69 @@ static void dup_attr(gpointer key, gpointer value, gpointer user_data)
 {
 	add_hash_param(user_data, key, value);
 }
-
+/* ハッシュテーブルにmeta_attributesノード、instance_attributesノードの内容をセットする */
 void
 get_meta_attributes(GHashTable *meta_hash, resource_t *rsc,
 		    node_t *node, pe_working_set_t *data_set)
 {
 	GHashTable *node_hash = NULL;
 	if(node) {
+		/* ノードが指定されている場合は、node_hashハッシュテーブルをnode->details->attrsハッシュテーブルにセットする */
 		node_hash = node->details->attrs;
 	}
-	
+	/* 対象xmlの属性を全て処理して、ハッシュテーブルに追加する */
 	xml_prop_iter(rsc->xml, prop_name, prop_value,
 		      add_hash_param(meta_hash, prop_name, prop_value);
 		);
-
+	/* 対象xmlのmeta_attributesを展開して、ハッシュテーブルに追加する */
 	unpack_instance_attributes(data_set->input, rsc->xml, XML_TAG_META_SETS, node_hash,
 				   meta_hash, NULL, FALSE, data_set->now);
 
 	/* populate from the regular attributes until the GUI can create
 	 * meta attributes
 	 */
+	/* 対象xmlのinstance_attributesを展開して、ハッシュテーブルに追加する */
 	unpack_instance_attributes(data_set->input, rsc->xml, XML_TAG_ATTR_SETS, node_hash,
 				   meta_hash, NULL, FALSE, data_set->now);
 
 	/* set anything else based on the parent */
 	if(rsc->parent != NULL) {
+		/* 親リソースが存在する場合は、その親リソースのmetaハッシュテーブルの内容もハッシュテーブルに追加する */
 		g_hash_table_foreach(rsc->parent->meta, dup_attr, meta_hash);
 	}	
 
 	/* and finally check the defaults */
+	/* 状態遷移作業エリアのrsc_defaultsタグのmeta_attributesを展開して、ハッシュテーブルに追加する */
 	unpack_instance_attributes(data_set->input, data_set->rsc_defaults, XML_TAG_META_SETS, node_hash,
 				   meta_hash, NULL, FALSE, data_set->now);
 }
-
+/* instance_attributesの内容を展開して、メタハッシュテーブルにセットする */
 void
 get_rsc_attributes(GHashTable *meta_hash, resource_t *rsc,
 		   node_t *node, pe_working_set_t *data_set)
 {
     GHashTable *node_hash = NULL;
     if(node) {
+		/* ノードが指定されている場合は、そのノードのattrsハッシュテーブルをセットする */
 	node_hash = node->details->attrs;
     }
-    
+	/* 対象xmlのinstance_attributesを展開して、ハッシュテーブルに追加する */
     unpack_instance_attributes(data_set->input, rsc->xml, XML_TAG_ATTR_SETS, node_hash,
 			       meta_hash, NULL, FALSE, data_set->now);
     
     /* set anything else based on the parent */
     if(rsc->parent != NULL) {
+		/* 親リソースが存在する場合は、親利リソースの内容も、metaハッシュテーブルの内容もハッシュテーブルに追加する */
 	get_rsc_attributes(meta_hash, rsc->parent, node, data_set);
 
     } else {
 	/* and finally check the defaults */
+		/* 状態遷移作業エリアのrsc_defaultsタグのinstance_attributesを展開して、ハッシュテーブルに追加する */
 	unpack_instance_attributes(data_set->input, data_set->rsc_defaults, XML_TAG_ATTR_SETS, node_hash,
 				   meta_hash, NULL, FALSE, data_set->now);
     }
 }
-
+/* 共通リソース情報展開処理 */
 gboolean	
 common_unpack(xmlNode * xml_obj, resource_t **rsc,
 	      resource_t *parent, pe_working_set_t *data_set)
@@ -187,133 +194,166 @@ common_unpack(xmlNode * xml_obj, resource_t **rsc,
 		
 	}
 	crm_malloc0(*rsc, sizeof(resource_t));
+	/* xml情報から"operationss"ノードのポインタを取得する */
 	ops = find_xml_node(xml_obj, "operations", FALSE);
-	
+	/* xmlポインタに自身のxml情報へのポインタをセットする */
 	(*rsc)->xml  = xml_obj;
 	(*rsc)->parent  = parent;
 	(*rsc)->ops_xml = expand_idref(ops, data_set->input);
 
 	(*rsc)->variant = get_resource_type(crm_element_name(xml_obj));
 	if((*rsc)->variant == pe_unknown) {
+		/* unknownリソースの場合は、ERRORログを出力して、確保したエリアを解放して、FALSE */
 		pe_err("Unknown resource type: %s", crm_element_name(xml_obj));
 		crm_free(*rsc);
 		return FALSE;
 	}
-	
+	/* 展開用にparametersハッシュテーブル,metaハッシュテーブルを生成する */
 	(*rsc)->parameters = g_hash_table_new_full(
 		g_str_hash,g_str_equal, g_hash_destroy_str,g_hash_destroy_str);
 	
 	(*rsc)->meta = g_hash_table_new_full(
 		g_str_hash,g_str_equal, g_hash_destroy_str,g_hash_destroy_str);
-	
+	/* xml情報から"clone"設定があれば取り出す:cloneリソースかどうかでid付けを切り替える */
 	value = crm_element_value(xml_obj, XML_RSC_ATTR_INCARNATION);
 	if(value) {
+		/* cloneの場合は、idに"id:取り出した値をidにセット */
 		(*rsc)->id = crm_concat(id, value, ':');
+		/* metaハッシュテーブルに、cloneキーと取り出した値をセットする */
 		add_hash_param((*rsc)->meta, XML_RSC_ATTR_INCARNATION, value);
 		
 	} else {
+		/* cloneでない場合は、そのまま子タグのidをidにセット */
 		(*rsc)->id = crm_strdup(id);
 	}
-
+	/* long_nameをセットする（親の場合はそのまま) */
 	if(parent) {
+		/* 親リソースがある場合は、親リソースのlong_name + ":" + idでlong_nameをセット */
 		(*rsc)->long_name = crm_concat(parent->long_name, (*rsc)->id, ':');
 	} else {
+		/* 親リソースがない場合は、そのままidをセット */
 		(*rsc)->long_name = crm_strdup((*rsc)->id);
 	}
 	
+	/* fnsにリソースタイプに対応したクラス処理へのポインタをセット */
 	(*rsc)->fns = &resource_class_functions[(*rsc)->variant];
 	crm_debug_3("Unpacking resource...");
-
+	/* 子タグ内のinstance_attributes,meta_attributesをmetaハッシュテーブルに展開する */
+	/* 親リソースが存在する場合には、親リソースのmetaハッシュテーブルの内容もmetaハッシュテーブルに展開する */
+	/* また、cib情報のrsc_defaultsの内容もmetaハッシュテーブルに展開する */
 	get_meta_attributes((*rsc)->meta, *rsc, NULL, data_set);
-	
+	/* フラグを０初期化 *//* pe_rsc_runnableフラグをセット *//* pe_rsc_provisionalフラグをセット */
 	(*rsc)->flags = 0;
 	set_bit((*rsc)->flags, pe_rsc_runnable); 
 	set_bit((*rsc)->flags, pe_rsc_provisional); 
-
+	/* 状態遷移作業エリアのflagにpe_rsc_managedがセットされている場合は、 */
+	/* pe_rsc_runnableフラグをセット 													*/
 	if(is_set(data_set->flags, pe_flag_is_managed_default)) {
 	    set_bit((*rsc)->flags, pe_rsc_managed); 
 	}
-	
-	(*rsc)->rsc_cons	   = NULL; 
-	(*rsc)->actions            = NULL;
+	(*rsc)->rsc_cons	   = NULL; 				/* colocationリストをクリア */
+	(*rsc)->actions            = NULL;			/* actionsリストをクリア */
 	(*rsc)->role		   = RSC_ROLE_STOPPED;	/* 現在のroleをSTOPPEDで初期化 */
 	(*rsc)->next_role	   = RSC_ROLE_UNKNOWN;	/* 次のroleをUNKNOWNで初期化 */
 
 	(*rsc)->recovery_type      = recovery_stop_start;
+	/* stickinessを状態遷移作業エリアのdefault_resource_stickiness */
 	(*rsc)->stickiness         = data_set->default_resource_stickiness;
-	(*rsc)->migration_threshold= INFINITY;
-	(*rsc)->failure_timeout    = 0;
-
+	(*rsc)->migration_threshold= INFINITY;		/* 故障閾値をINFINITY */
+	(*rsc)->failure_timeout    = 0;				/* 故障回数を0で初期化 */
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、priorityを取り出す */
 	value = g_hash_table_lookup((*rsc)->meta, XML_CIB_ATTR_PRIORITY);
-	(*rsc)->priority	   = crm_parse_int(value, "0"); 
-	(*rsc)->effective_priority = (*rsc)->priority;
-
+	(*rsc)->priority	   = crm_parse_int(value, "0"); /* 取り出したprorityをpriortiyにセット。取り出せない場合は０ */
+	(*rsc)->effective_priority = (*rsc)->priority;		/* effective_prioritypにもpriorityをセット */
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、notifyを取り出す */
 	value = g_hash_table_lookup((*rsc)->meta, XML_RSC_ATTR_NOTIFY);
 	if(crm_is_true(value)) {
+	    /* notifyがTRUEの場合は、リソースのフラグにpe_rsc_notifyをセット */
 	    set_bit((*rsc)->flags, pe_rsc_notify); 
 	}
-	
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、is-managedを取り出す */
 	value = g_hash_table_lookup((*rsc)->meta, XML_RSC_ATTR_MANAGED);
 	if(value != NULL && safe_str_neq("default", value)) {
+	    /* 取り出せた場合で、defaultでない場合 */
 	    gboolean bool_value = TRUE;
 	    crm_str_to_boolean(value, &bool_value);
 	    if(bool_value == FALSE) {
+			/* FALSEの場合は、リソースのフラグのpe_rsc_managedをクリア */
 		clear_bit((*rsc)->flags, pe_rsc_managed); 
 	    } else {
+			/* TRUEの場合は、リソースのフラグのpe_rsc_managedをセット */
 		set_bit((*rsc)->flags, pe_rsc_managed); 
 	    }
 	}
-
+	/* 状態遷移作業エリアのflagにpe_flag_maintenance_modeがセットされている場合は、 */
+	/* リソースのフラグのpe_rsc_managedをクリア */
+	/* ※メンテナンスモード中は、リソースは管理しない */
 	if(is_set(data_set->flags, pe_flag_maintenance_mode)) {
 	    clear_bit((*rsc)->flags, pe_rsc_managed);
 	}
-	
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、globally-uniqueを取り出す */
 	crm_debug_2("Options for %s", (*rsc)->id);
 	value = g_hash_table_lookup((*rsc)->meta, XML_RSC_ATTR_UNIQUE);
-
+	/* このリソース情報の最上位（トップの親リソース）のリソースを取得する */
 	top = uber_parent(*rsc);
 	if(crm_is_true(value) || top->variant < pe_clone) {
+		/* globally-uniqueがTRUEか、そのトップリソースがpe_unknown、pe_native、pe_groupの場合(pe_clone,pe_master以外) */
+	  	/* リソースのフラグのpe_rsc_uniqueをセット */
 	    set_bit((*rsc)->flags, pe_rsc_unique); 
 	}
-	
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、restart-typeを取り出す */
 	value = g_hash_table_lookup((*rsc)->meta, XML_RSC_ATTR_RESTART);
 	if(safe_str_eq(value, "restart")) {
+		/* restart-typeがrestartの場合は、restart_typeにpe_restart_restart */
 		(*rsc)->restart_type = pe_restart_restart;
 		crm_debug_2("\tDependency restart handling: restart");
 
 	} else {
+		/* restart-typeがその他の場合は、restart_typeにpe_restart_ignore */
 		(*rsc)->restart_type = pe_restart_ignore;
 		crm_debug_2("\tDependency restart handling: ignore");
 	}
-
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、multiple-activeを取り出す */
 	value = g_hash_table_lookup((*rsc)->meta, XML_RSC_ATTR_MULTIPLE);
 	if(safe_str_eq(value, "stop_only")) {
+		/* multiple-activがstop_onlyの場合は、recovery_typeにrecovery_stop_only */
 		(*rsc)->recovery_type = recovery_stop_only;
 		crm_debug_2("\tMultiple running resource recovery: stop only");
 
 	} else if(safe_str_eq(value, "block")) {
+		/* multiple-activがblockの場合は、recovery_typeにrecovery_block */
 		(*rsc)->recovery_type = recovery_block;
 		crm_debug_2("\tMultiple running resource recovery: block");
 
 	} else {		
+		/* multiple-activがその他の場合は、recovery_typeにrecovery_stop_start */
 		(*rsc)->recovery_type = recovery_stop_start;
 		crm_debug_2("\tMultiple running resource recovery: stop/start");
 	}
-
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、resource-stickinessを取り出す */
 	value = g_hash_table_lookup((*rsc)->meta, XML_RSC_ATTR_STICKINESS);
 	if(value != NULL && safe_str_neq("default", value)) {
+		/* resource-stickinessが取れた場合で、default以外の場合は、取得した値をstickinessにセットする */
+		/* ※ 先に全体の値（data_set->default_resource_stickiness)から設定しているが、リソース個別の */
+		/*    設定がある場合にはここで上書きされる */
 		(*rsc)->stickiness = char2score(value);
 	}
-
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、migration-thresholdを取り出す */
 	value = g_hash_table_lookup((*rsc)->meta, XML_RSC_ATTR_FAIL_STICKINESS);
 	if(value != NULL && safe_str_neq("default", value)) {
+		/* migration-thresholdが取れた場合で、default以外の場合は、取得した値をmigration_thresholdにセット */
+		/* ※ 先にINFINITY値を設定しているが、リソース個別の設定がある場合にはここで上書きされる */
 		(*rsc)->migration_threshold = char2score(value);
 
 	} else if(value == NULL) {
 	    /* Make a best-effort guess at a migration threshold for people with 0.6 configs
 	     * try with underscores and hyphens, from both the resource and global defaults section
 	     */ 
-
+		/* migration_thresholdが設定されていない場合 */
+		/* 子タグ内から展開してあるmetaハッシュテーブル内から、*/
+		/* resource-failure-stickines, resource_failure_stickiness, */
+		/* default-resource-failure-stickiness, default_resource_failure_stickinessの順で */
+		/* 取得を試みる */
 	    value = g_hash_table_lookup((*rsc)->meta, "resource-failure-stickiness");
 	    if(value == NULL) {
 		value = g_hash_table_lookup((*rsc)->meta, "resource_failure_stickiness");
@@ -326,18 +366,25 @@ common_unpack(xmlNode * xml_obj, resource_t **rsc,
 	    }
 
 	    if(value) {
+			/* 値が取れた場合は、値をスコア化する */
 		int fail_sticky = char2score(value);
 		if(fail_sticky == -INFINITY) {
+			/* -INFINITYの場合は、migration_thresholdに１をセットする */
 		    (*rsc)->migration_threshold = 1;
 		    crm_info("Set a migration threshold of %d for %s based on a failure-stickiness of %s",
 			     (*rsc)->migration_threshold, (*rsc)->id, value);
 
 		} else if((*rsc)->stickiness != 0 && fail_sticky != 0) {
+			/* このリソースのstickinessが０でなくて、スコア化した値が０でない場合 */
+			/* リソースのstickiness÷スコア化した値で、migration_thresholdをセットする */
 		    (*rsc)->migration_threshold = (*rsc)->stickiness / fail_sticky;
 		    if((*rsc)->migration_threshold < 0) {
 			/* Make sure it's positive */
+					/* セットしたmigration_thresholdが０以下になった場合は、migration_thresholdの絶対値でセットする */
+					/* Make sure it's positive */
 			(*rsc)->migration_threshold = 0 - (*rsc)->migration_threshold;
 		    }
+	    	/* migration_thresholdをインクリメントする */
 		    (*rsc)->migration_threshold += 1;
 		    crm_info("Calculated a migration threshold for %s of %d based on a stickiness of %d/%s",
 			     (*rsc)->id, (*rsc)->migration_threshold, (*rsc)->stickiness, value);
@@ -346,17 +393,20 @@ common_unpack(xmlNode * xml_obj, resource_t **rsc,
 	}
 
 	
-	
+	/* 子タグ内から展開してあるmetaハッシュテーブル内から、failure-timeoutを取り出す */
 	value = g_hash_table_lookup((*rsc)->meta, XML_RSC_ATTR_FAIL_TIMEOUT);
 	if(value != NULL) {
 	    /* call crm_get_msec() and convert back to seconds */
+	    /* call crm_get_msec() and convert back to seconds */
+	    /* 値が取れた場合は、取れた値÷1000をfailure_timeoutにセット */
+	    /* ※秒化する */
 	    (*rsc)->failure_timeout = (crm_get_msec(value) / 1000);
 	}
 	/* リソースの"target-role"属性をリソースのnext_roleに反映する */
 	get_target_role(*rsc, &((*rsc)->next_role));
 	crm_debug_2("\tDesired next state: %s",
 		    (*rsc)->next_role!=RSC_ROLE_UNKNOWN?role2text((*rsc)->next_role):"default");
-	/* リソースのunpack処理を実行する */
+	/*------------ リソース個別のunpack処理を実行する-------------- */
 	if((*rsc)->fns->unpack(*rsc, data_set) == FALSE) {
 		return FALSE;
 	}

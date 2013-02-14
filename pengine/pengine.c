@@ -257,13 +257,13 @@ do_calculations(pe_working_set_t *data_set, xmlNode *xml_input, ha_time_t *now)
 #endif
 	
 	crm_debug_5("unpack constraints");
-	/* ステージ０処理 */		  
+	/* ステージ０処理 *//* 受信xmlの展開処理 */
 	stage0(data_set);
 	
 #if MEMCHECK_STAGE_0
 	check_and_exit(0);
 #endif
-	/* 展開された全てのリソースでpe_rsc_orphanリソースがあって、停止状態でない場合は、ログに出力する */
+	/* 展開された全てのリソースでpe_rsc_orphanリソース(孤立)があって、停止状態でない場合は、ログに出力する */
 	slist_iter(rsc, resource_t, data_set->resources, lpc,
 		   if(is_set(rsc->flags, pe_rsc_orphan)
 		      && rsc->role == RSC_ROLE_STOPPED) {

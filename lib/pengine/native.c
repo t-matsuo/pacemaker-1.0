@@ -97,7 +97,7 @@ native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 	}
 }
 
-
+/* primitiveリソース固有の展開処理 */
 extern void force_non_unique_clone(resource_t *rsc, const char *rid, pe_working_set_t *data_set);
 gboolean native_unpack(resource_t *rsc, pe_working_set_t *data_set)
 {
