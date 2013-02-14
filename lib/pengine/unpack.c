@@ -44,17 +44,19 @@
 gboolean unpack_rsc_op(
     resource_t *rsc, node_t *node, xmlNode *xml_op,
     enum action_fail_response *failed, pe_working_set_t *data_set);
-
+/* 指定ノードをunclean状態に設定する処理 */
 static void pe_fence_node(pe_working_set_t *data_set, node_t *node, const char *reason)
 {
     CRM_CHECK(node, return);
     if(node->details->unclean == FALSE) {
 	if(is_set(data_set->flags, pe_flag_stonith_enabled)) {
+		/* ノードのuncleanがFALSEの場合は、状態遷移作業エリアのpe_flag_stonith_enabledを判定してログを出力する */
 	    crm_warn("Node %s will be fenced %s", node->details->uname, reason);
 	} else {
 	    crm_warn("Node %s is unclean %s", node->details->uname, reason);
 	}
     }
+    /* ノードをアンクリーン(unclean=TRUE)に設定する */
     node->details->unclean = TRUE;
 }
 
@@ -1317,8 +1319,11 @@ unpack_lrm_rsc_state(
 	CRM_ASSERT(rsc != NULL);
 	
 	/* process operations */
+	/* 現在のリソース情報のroleをセーブする */
 	saved_role = rsc->role;
+	/* on_failをaction_fail_ignoreで初期化する */
 	on_fail = action_fail_ignore;
+	/* 現在のリソース情報のroleをRSC_ROLE_UNKNOWNにセットする */
 	rsc->role = RSC_ROLE_UNKNOWN;
 	/* op_list(lrm_rsc_opノードの)リストを時系列でソートする */
 	sorted_op_list = g_list_sort(op_list, sort_op_by_callid);
@@ -1330,26 +1335,36 @@ unpack_lrm_rsc_state(
 		if(safe_str_eq(task, CRMD_ACTION_MIGRATED)) {
 			migrate_op = rsc_op;
 		}
-		/* lrm_rsc_opノードを展開する */
+		/* 1つのlrm_rsc_opを展開する(結果として全てのlrm_rsc_opが処理される) */
+		/* ※リソースの起動状態などもこの展開で設定される */
+		/* ※on_failには最後のlrm_rsc_opの値が設定されている */
+		/* ※現在のロール(rsc->role)も設定されている */
 		unpack_rsc_op(rsc, node, rsc_op, &on_fail, data_set);
 		);
 
 	/* create active recurring operations as optional */ 
+	/* lrm_rsc_opタグのソート済みのリストから、実行中の操作のインデックスを計算する */
 	calculate_active_ops(sorted_op_list, &start_index, &stop_index);
+	/* 実行されているmonitor処理をアクション情報に追加する */
 	process_recurring(node, rsc, start_index, stop_index,
 			  sorted_op_list, data_set);
 	
 	/* no need to free the contents */
 	g_list_free(sorted_op_list);
-	
+	/* lrm_resource内の最後のlrm_rsc_opの実行操作のon-failから、そのリソースの状態 */
+	/*（次のロールや、エラーによってのリソースの配置不可のスコア(-INIFINITY)など)をセットする */
 	process_rsc_state(rsc, node, on_fail, migrate_op, data_set);
 
 	if(get_target_role(rsc, &req_role)) {
-	    if(rsc->next_role == RSC_ROLE_UNKNOWN || req_role < rsc->next_role) {
+		/* 対象リソースのmetaハッシュテーブルから取得したtarget-roleの値がRSC_ROLE_SLAVEか、RSC_ROLE_MASTERで */
+		/* かつ、pe_masterか、statefulがTRUEの場合 */
+		if(rsc->next_role == RSC_ROLE_UNKNOWN || req_role < rsc->next_role) {
 		crm_debug("%s: Overwriting calculated next role %s"
 			  " with requested next role %s",
 			  rsc->id, role2text(rsc->next_role),
 			  role2text(req_role));
+			/* next_roleがRSC_ROLE_UNKNOWNか、req_roleがnext_roleより小さい場合 */
+			/* next_roleにreq_roleをセットする */
 		rsc->next_role = req_role;
 
 	    } else if(req_role > rsc->next_role) {
@@ -1361,6 +1376,16 @@ unpack_lrm_rsc_state(
 	}
 		
 	if(saved_role > rsc->role) {
+		/* saved_roleがrsc->roleより大きい場合は、saved_roleを戻す */
+		/* ※roleは次の重みとなっている */
+		/*	enum rsc_role_e {
+				RSC_ROLE_UNKNOWN, 	0
+				RSC_ROLE_STOPPED, 	1
+				RSC_ROLE_STARTED, 	2
+				RSC_ROLE_SLAVE, 	3
+				RSC_ROLE_MASTER, 	4
+			};
+		*/
 		rsc->role = saved_role;
 	}
 }
