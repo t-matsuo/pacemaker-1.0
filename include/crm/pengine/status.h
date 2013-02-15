@@ -60,7 +60,10 @@ enum pe_find {
 #define pe_flag_have_stonith_resource	0x00000020ULL
 
 #define pe_flag_stop_rsc_orphans	0x00000100ULL
-#define pe_flag_stop_action_orphans	0x00000200ULL
+#define pe_flag_stop_action_orphans	0x00000200ULL 	/* フラグがセットされている(stop-orphan-actionsがTRUE:デフォルトはTRUE)場合、*/
+													/* statusタグ内に存在するlrm_resource情報だがリソース情報には存在しない操作情報の場合 */
+													/* CancelXmlOp()で操作をキャンセルする */
+													/* フラグがセットされていない場合は、処理されない */
 #define pe_flag_stop_everything		0x00000400ULL
 
 #define pe_flag_start_failure_fatal	0x00001000ULL
@@ -159,27 +162,29 @@ struct node_s {
 #define pe_rsc_failure_ignored  0x01000000ULL
 
 struct resource_s { 
-		char *id; 
+		char *id; 									/* リソースid *//* クローンの場合はid:clone名 */
 		char *clone_name; 
-		char *long_name; 
-		xmlNode *xml; 
-		xmlNode *ops_xml; 
+		char *long_name; 							/* 親リソースがない場合は、idをセット */
+													/* 親リソースがある場合は、親リソースlong_name:id */
+		xmlNode *xml; 								/* 受信したcib.xml内のリソースのxmlへのポインタ		*/
+		xmlNode *ops_xml; 							/* リソースタグ内のoperationタグへのポインタ			*/
 
-		resource_t *parent;
-		void *variant_opaque;
-		enum pe_obj_types variant;
-		resource_object_functions_t *fns;
- 		resource_alloc_functions_t  *cmds;
+		resource_t *parent;							/* 親リソースへのポインタ　親リソースがないリソースの場合はNULL */
+		void *variant_opaque;						/* group,cloneなどのリソース毎の固有データ */
+		enum pe_obj_types variant;					/* リソースのタイプ */
+		resource_object_functions_t *fns;			/* fns処理配列ポインタ */
+ 		resource_alloc_functions_t  *cmds;			/* cmds処理配列ポインタ */
 
-		enum rsc_recovery_type recovery_type;
-		enum pe_restart        restart_type;
+		enum rsc_recovery_type recovery_type;		/* リカバリタイプ */
+		enum pe_restart        restart_type;		/* リスタートタイプ */
+													/* restart-typeが指定されている場合は、そのタイプ値。指定なしの場合は、pe_restart_ignore */
 
 		int	 priority; 
 		int	 stickiness; 
 		int	 sort_index; 
 		int	 failure_timeout;
 		int	 effective_priority; 
-		int	 migration_threshold;
+		int	 migration_threshold;	/* リソースのmigration-threshold値 */
 
 		unsigned long long flags;
 	
@@ -189,8 +194,14 @@ struct resource_s {
 		GListPtr actions;	   /* action_t*         */
 
 		node_t *allocated_to;
+		/* runnning_onリスト : リソースの現在状態からSTOPPED,UNKNOWN以外のrole(起動済み)と判断した場合に設定されるノードのリスト */
+		/* 起動しているノード情報が入る */
 		GListPtr running_on;       /* node_t*   */
+		/* known_onリスト : リソースの現在状態からUNKNOWN以外のroleと判断した場合に設定されるノードのリスト */
+		/* UNKNOWN以外のノード情報が入る */
 		GListPtr known_on;	   /* node_t* */
+		/* リソースが配置可能なノード情報のリスト */
+		/* 		初期の展開時(native_unpack)にクリア */
 		GListPtr allowed_nodes;    /* node_t*   */
 
 		enum rsc_role_e role;

@@ -1187,13 +1187,14 @@ set_id(xmlNode * xml_obj, const char *prefix, int child)
 	crm_xml_add(xml_obj, XML_ATTR_ID, new_id);
 	crm_free(new_id);
 }
-
+/* リソース配置ノード情報((allowed_nodes)への重み(weight)へのスコア加算処理 */
 static void
 resource_node_score(resource_t *rsc, node_t *node, int score, const char *tag) 
 {
 	node_t *match = NULL;
 
 	if(rsc->children) {
+		/* 子リソースがある場合は全て同様に処理する */
 	    slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
 		resource_node_score(child_rsc, node, score, tag);
@@ -1202,12 +1203,15 @@ resource_node_score(resource_t *rsc, node_t *node, int score, const char *tag)
 	
 	crm_debug_2("Setting %s for %s on %s: %d",
 		    tag, rsc->id, node->details->uname, score);
+	/* リソースの配置可能なノード情報に対象ノード情報が存在するかチェックする */
 	match = pe_find_node_id(rsc->allowed_nodes, node->details->id);
 	if(match == NULL) {
+		/* 存在しない場合は、対象ノード情報を配置可能なノード情報に追加する */
 		match = node_copy(node);
 		match->weight = 0;
 		rsc->allowed_nodes = g_list_append(rsc->allowed_nodes, match);
 	}
+	/* ノード情報のweightに対象スコアを加算する */
 	match->weight = merge_weights(match->weight, score);
 }
 /* リソース配置ノード情報((allowed_nodes)への重み(weight)へのスコア加算処理 */

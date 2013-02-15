@@ -563,20 +563,24 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 		GListPtr list = NULL;
 		crm_debug_2("Assigning priority for %s: %s", child_rsc->id, role2text(child_rsc->next_role));
 
+		/* 子リソースの現在のroleを取得する */
 		if(child_rsc->fns->state(child_rsc, TRUE) == RSC_ROLE_STARTED) {
+			/* 子リソースがRSC_ROLE_STATEDになっている場合は、子リソースをSLAVE状態にセットする */
 		    set_role_slave(child_rsc, TRUE);
 		}
-
+		/* 子リソースのallocated_toリストとallocated_toリストに単一のノードがセットせれている場合はそのノード情報をを取得する */
 		chosen = child_rsc->fns->location(child_rsc, &list, FALSE);
 		if(g_list_length(list) > 1) {
+			/* allocated_toリストが複数ノードを含んでいる場合は、まだ、配置先が決定していないはずなのでエラー?? */
 		    crm_config_err("Cannot promote non-colocated child %s", child_rsc->id);
 		}
 
 		g_list_free(list);
 		if(chosen == NULL) {
+			/* 配置先が決定していない場合は処理しない */
 			continue;
 		}
-		
+		/* 子リソースの次の遷移roleを取得する */
 		next_role = child_rsc->fns->state(child_rsc, FALSE);
 		switch(next_role) {
 			case RSC_ROLE_STARTED:

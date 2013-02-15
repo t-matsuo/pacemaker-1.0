@@ -1079,6 +1079,7 @@ process_rsc_state(resource_t *rsc, node_t *node,
 
 	/* process current state */
 	if(rsc->role != RSC_ROLE_UNKNOWN) { 
+		/* roleがUNKNOWNでもない場合には、known_onリストにノード情報を追加する */
 		rsc->known_on = g_list_append(rsc->known_on, node);
 	}
 
@@ -1138,6 +1139,7 @@ process_rsc_state(resource_t *rsc, node_t *node,
 	}
 	
 	if(rsc->role != RSC_ROLE_STOPPED && rsc->role != RSC_ROLE_UNKNOWN) {
+		/* roleがSTOPPPEDでもなくて、UNKNOWNでもない場合は、起動している */
 		if(is_set(rsc->flags, pe_rsc_orphan)) {
 		    if(is_set(rsc->flags, pe_rsc_managed)) {
 			crm_config_warn("Detected active orphan %s running on %s",
@@ -1148,7 +1150,7 @@ process_rsc_state(resource_t *rsc, node_t *node,
 					rsc->id, node->details->uname);
 		    }
 		}
-	    
+	    /* 起動しているので、リソースのrunnning_onリストにノード情報を追加する */
 		native_add_running(rsc, node, data_set);
 		if(on_fail != action_fail_ignore) {
 		    set_bit(rsc->flags, pe_rsc_failed);

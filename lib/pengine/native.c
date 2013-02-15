@@ -29,7 +29,9 @@
 
 #define VARIANT_NATIVE 1
 #include "./variant.h"
-
+/*
+リソースの現在状態からSTOPPED,UNKNOWN以外のrole(起動済み)と判断した場合の処理
+*/
 void
 native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 {
@@ -44,7 +46,7 @@ native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 		);
 	
 	crm_debug_3("Adding %s to %s", rsc->id, node->details->uname);
-	
+	/* リソース情報のrunning_onリストにノード情報を追加する(起動済み情報の登録) */
 	rsc->running_on = g_list_append(rsc->running_on, node);
 	if(rsc->variant == pe_native) {
 		node->details->running_rsc = g_list_append(
@@ -52,6 +54,7 @@ native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 	}
 
 	if(is_not_set(rsc->flags, pe_rsc_managed)) {
+		/* unmanagedリソースの場合は、ノードを固定(INFINITY)する */
 		crm_info("resource %s isnt managed", rsc->id);
 		resource_location(rsc, node, INFINITY,
 				  "not_managed_default", data_set);
@@ -441,40 +444,48 @@ void native_free(resource_t *rsc)
 	common_free(rsc);
 }
 
-
+/* リソースのROLE(role or next_role)を返す処理 */
 enum rsc_role_e
 native_resource_state(const resource_t *rsc, gboolean current)
 {
+	/* 戻りroleを次のroleでセットする */
 	enum rsc_role_e role = rsc->next_role;
 	if(current) {
+		/* current指定されている場合は、戻りroleを現在のroleでセットする */
 		role = rsc->role;
 	}
 	crm_debug_4("%s state: %s", rsc->id, role2text(role));
+	/* 戻りroleを返す */
 	return role;
 }
-
+/* リソースのロケーションを返す */
 node_t *native_location(resource_t *rsc, GListPtr *list, gboolean current) 
 {
     node_t *one = NULL;
     GListPtr result = NULL;
 
     if(rsc->children) {
+		/* 子リソースがある場合は、全ての子リソースのロケーションを処理する */
 	slist_iter(child, resource_t, rsc->children, lpc,
 		   child->fns->location(child, &result, current);
 	    );
 	
     } else if(current && rsc->running_on) {
+		/* current指定されていてrnnnin_onリストが存在する場合は、running_onリストの内容を返す */
 	result = g_list_copy(rsc->running_on);
 	
     } else if(current == FALSE && rsc->allocated_to) {
+		/* current指定されていない場合で、allocated_toリストが存在する場合は、allocated_toリストの内容を返す */
 	result = g_list_append(NULL, rsc->allocated_to);
     }
 
     if(result && g_list_length(result) == 1) {
+		/* 結果がセットされていて、リストの長さが単一の場合は、先頭のノード情報をロケーションとしてセットする */
 	one = g_list_nth_data(result, 0);
     }
     
     if(list) {
+		/* リストに結果を積み上げる */
 	slist_iter(node, node_t, result, lpc,
 		   if(*list == NULL || pe_find_node_id(*list, node->details->id) == NULL) {
 		       *list = g_list_append(*list, node);
@@ -482,6 +493,7 @@ node_t *native_location(resource_t *rsc, GListPtr *list, gboolean current)
 	    );
     }
 
-    g_list_free(result);	
+    g_list_free(result);
+    /* ノード情報を返す */	
     return one;
 }
