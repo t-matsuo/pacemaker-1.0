@@ -535,17 +535,19 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 	get_clone_variant_data(clone_data, rsc);
 
     if(is_not_set(rsc->flags, pe_rsc_provisional)) {
+	/* pe_rsc_provisionalフラグがセットされていない場合は処理しない */
 	return NULL;
 
     } else if(is_set(rsc->flags, pe_rsc_allocating)) {
 	crm_debug("Dependency loop detected involving %s", rsc->id);
+	/* 既に配置処理済みの場合は処理しない */
 	return NULL;
     }
 
 	apply_master_prefs(rsc);
 	/* クローンのcolor処理を実行する */
 	clone_color(rsc, data_set);
-	
+	/* 配置処理フラグをセットする */
     set_bit(rsc->flags, pe_rsc_allocating);
 
 	/* count now tracks the number of masters allocated */

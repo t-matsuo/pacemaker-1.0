@@ -1142,16 +1142,22 @@ void clone_rsc_colocation_rh(
 	    return;
 	    
 	} else if(constraint->score >= INFINITY) {
+		/* 通常（rsc指定リソースのinterleaveがFALSEの場合）で、colocationのスコアがINFINITYの場合 */
 		GListPtr rhs = NULL;
-		
+		/* with-rscリソースの全ての子リソースを処理する */
 		slist_iter(
 			child_rsc, resource_t, rsc_rh->children, lpc,
+			/* 子リソースのlocationを検索する */
 			node_t *chosen = child_rsc->fns->location(child_rsc, NULL, FALSE);
 			if(chosen != NULL) {
+				/* 配置候補がある場合は、リストに追加する */
 				rhs = g_list_append(rhs, chosen);
 			}
+			/* この処理で、with-rsc指定されたリソースが配置候補として動けるのかどうかのリストが出来る */
 			);
-
+		/* with-rscリソースの配置候補をrsc指定の配置候補へ反映する */
+		/* これによって、withリソースの配置候補で、with-rsc指定されたリソースが配置候補にない場合 */
+		/* (with-rscリソースが起動出来ないノード)には、rscリソース自体も配置できなく(-INFININITYがセット)される */
 		rsc_lh->allowed_nodes = node_list_exclude(rsc_lh->allowed_nodes, rhs, FALSE);
 		g_list_free(rhs);
 		return;
