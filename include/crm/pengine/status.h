@@ -69,7 +69,7 @@ enum pe_find {
 #define pe_flag_start_failure_fatal	0x00001000ULL
 #define pe_flag_remove_after_stop	0x00002000ULL
 
-
+/* data_set情報 */
 typedef struct pe_working_set_s 
 {
 		xmlNode *input;
@@ -88,8 +88,8 @@ typedef struct pe_working_set_s
 
 		GHashTable *config_hash;
 		
-		GListPtr nodes;
-		GListPtr resources;
+		GListPtr nodes;							/* ノード情報リスト */
+		GListPtr resources;						/* リソース情報リスト */
 		GListPtr placement_constraints;
 		GListPtr ordering_constraints;
 		GListPtr colocation_constraints;
@@ -109,7 +109,7 @@ typedef struct pe_working_set_s
 		xmlNode *graph;
 
 } pe_working_set_t;
-
+/* ノード詳細情報 */
 struct node_shared_s { 
 		const char *id; 
 		const char *uname; 
@@ -128,12 +128,12 @@ struct node_shared_s {
 		GHashTable *attrs;	/* char* => char* */
 		enum node_type type;
 }; 
-
+/* ノード情報 */
 struct node_s { 
-		int	weight; 
+		int	weight; 							/* weight(重み) */
 		gboolean fixed;
 		int      count;
-		struct node_shared_s *details;
+		struct node_shared_s *details;			/* ノード詳細情報 */
 };
 
 #include <crm/pengine/complex.h>
@@ -160,7 +160,7 @@ struct node_s {
 #define pe_rsc_stopping		0x00200000ULL
 
 #define pe_rsc_failure_ignored  0x01000000ULL
-
+/* リソース情報 */
 struct resource_s { 
 		char *id; 									/* リソースid *//* クローンの場合はid:clone名 */
 		char *clone_name; 
@@ -192,7 +192,7 @@ struct resource_s {
 		GListPtr rsc_cons;         /* rsc_colocation_t* */
 		GListPtr rsc_location;     /* rsc_to_node_t*    */
 		GListPtr actions;	   /* action_t*         */
-
+		/* リソース配置を決定したノード情報 */
 		node_t *allocated_to;
 		/* runnning_onリスト : リソースの現在状態からSTOPPED,UNKNOWN以外のrole(起動済み)と判断した場合に設定されるノードのリスト */
 		/* 起動しているノード情報が入る */
@@ -204,15 +204,15 @@ struct resource_s {
 		/* 		初期の展開時(native_unpack)にクリア */
 		GListPtr allowed_nodes;    /* node_t*   */
 
-		enum rsc_role_e role;
-		enum rsc_role_e next_role;
+		enum rsc_role_e role;		/* 現在のrole */
+		enum rsc_role_e next_role;	/* 次の遷移role */
 
 		GHashTable *meta;	   
 		GHashTable *parameters;
 
-		GListPtr children;	  /* resource_t* */	
+		GListPtr children;	  /* resource_t* */	/* 子リソース情報リスト */
 };
-
+/* アクション情報 */
 struct action_s 
 {
 		int         id;
@@ -253,7 +253,7 @@ struct action_s
 		GListPtr actions_before; /* action_warpper_t* */
 		GListPtr actions_after;  /* action_warpper_t* */
 };
-
+/* notify情報 */
 typedef struct notify_data_s {
 	GHashTable *keys;
 

@@ -34,13 +34,13 @@ gboolean ghash_free_str_str(gpointer key, gpointer value, gpointer user_data);
 void unpack_operation(
 	action_t *action, xmlNode *xml_obj, pe_working_set_t* data_set);
 static xmlNode *find_rsc_op_entry_helper(resource_t * rsc, const char *key, gboolean include_disabled);
-
+/* GList解放処理 */
 void
 pe_free_shallow(GListPtr alist)
 {
 	pe_free_shallow_adv(alist, TRUE);
 }
-
+/* GList解放処理 */
 void
 pe_free_shallow_adv(GListPtr alist, gboolean with_data)
 {
@@ -48,21 +48,24 @@ pe_free_shallow_adv(GListPtr alist, gboolean with_data)
 	GListPtr item_next = alist;
 
 	if(with_data == FALSE && alist != NULL) {
+		/* FALSE指定で、対象リストが存在する場合は、対象リストを解放して終了 */
 		g_list_free(alist);
 		return;
 	}
-	
 	while(item_next != NULL) {
+		/* TRUE指定の場合で対象リストが存在する場合 */
 		item = item_next;
 		item_next = item_next->next;
 		
 		if(with_data) {
 /*			crm_debug_5("freeing %p", item->data); */
+			/* リストのデータを解放する */
 			crm_free(item->data);
 		}
 		
 		item->data = NULL;
 		item->next = NULL;
+		/* リストアイテムを解放する */
 		g_list_free_1(item);
 	}
 }
@@ -323,28 +326,38 @@ node_list_or(GListPtr list1, GListPtr list2, gboolean filter)
 
 	return result;
 }
-
+/*
+	*** ノード情報リストの複製処理 ***
+	list1  : 複製対象のノード情報リスト
+	reset  : TRUE  - weightは0として初期化する
+	         FALSE -                初期化せずにセットする
+	filter : TRUE  - ノード情報のweightが0以下の場合は取得リストにセットしない
+			 FALSE -                                              セットする
+*/
 GListPtr 
 node_list_dup(GListPtr list1, gboolean reset, gboolean filter)
 {
 	GListPtr result = NULL;
-
+	/* 複製対象リストのノード情報を全て処理する */
 	slist_iter(
 		this_node, node_t, list1, lpc,
 		node_t *new_node = NULL;
 		if(filter && this_node->weight < 0) {
+			/* filterがTRUEの場合で、ノード情報のweightが0以下の場合は処理しない */
 			continue;
 		}
-		
+		/* 複製対象のノード情報をコピーする */
 		new_node = node_copy(this_node);
 		if(reset) {
+			/* resetがTRUEの場合は、weightを0で初期化 */
 			new_node->weight = 0;
 		}
 		if(new_node != NULL) {
+			/* 複製したノード情報を結果リストに追加する */
 			result = g_list_append(result, new_node);
 		}
 		);
-
+	/* 結果リストを返す */
 	return result;
 }
 
@@ -1251,7 +1264,7 @@ resource_location(resource_t *rsc, node_t *node, int score, const char *tag,
 }
 
 #define sort_return(an_int) crm_free(a_uuid); crm_free(b_uuid); return an_int
-
+/* lrm_rsc_opデータをCALLIDでソートする(時系列ソート) */
 gint
 sort_op_by_callid(gconstpointer a, gconstpointer b)
 {
@@ -1259,13 +1272,13 @@ sort_op_by_callid(gconstpointer a, gconstpointer b)
 	char *b_uuid = NULL;
 	const xmlNode *xml_a = a;
 	const xmlNode *xml_b = b;
-	
+	/* 比較対象データの"id"属性データを取り出す */
  	const char *a_xml_id = crm_element_value_const(xml_a, XML_ATTR_ID);
  	const char *b_xml_id = crm_element_value_const(xml_b, XML_ATTR_ID);
-
+	/* 比較対象データの"call-id"属性データを取り出す */
  	const char *a_task_id = crm_element_value_const(xml_a, XML_LRM_ATTR_CALLID);
  	const char *b_task_id = crm_element_value_const(xml_b, XML_LRM_ATTR_CALLID);
-
+	/* 比較対象データの"transition-magic"属性データを取り出す */
 	const char *a_key = crm_element_value_const(xml_a, XML_ATTR_TRANSITION_MAGIC);
  	const char *b_key = crm_element_value_const(xml_b, XML_ATTR_TRANSITION_MAGIC);
 
@@ -1289,6 +1302,7 @@ sort_op_by_callid(gconstpointer a, gconstpointer b)
 		 *    - we can handle it easily enough, but we need to get
 		 *    to the bottom of why its happening.
 		 */
+		/* IDが同一の場合は(id="pingCheck:1_start_0"など同じ操作が存在)エラー */
 		pe_err("Duplicate lrm_rsc_op entries named %s", a_xml_id);
 		sort_return(0);
 	}
@@ -1296,6 +1310,7 @@ sort_op_by_callid(gconstpointer a, gconstpointer b)
 	CRM_CHECK(a_task_id != NULL && b_task_id != NULL,
 		  crm_err("a: %s, b: %s", crm_str(a_xml_id), crm_str(b_xml_id));
 		  sort_return(0));	
+	/* 取り出した"call-id"属性値を数値化する */
 	a_call_id = crm_parse_int(a_task_id, NULL);
 	b_call_id = crm_parse_int(b_task_id, NULL);
 	

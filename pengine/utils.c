@@ -320,13 +320,16 @@ native_assign_node(resource_t *rsc, GListPtr nodes, node_t *chosen, gboolean for
 
 	    return FALSE;
 	}
-
+	/* リソースの配置ノード情報をデバック出力 */
 	crm_debug("Assigning %s to %s", chosen->details->uname, rsc->id);
 	crm_free(rsc->allocated_to);
+	/* リソースの配置ノード情報に選択されたノード情報をセットする */
 	rsc->allocated_to = node_copy(chosen);
-
+	/* 選択されたノードの配置リソース情報リストにリソース情報を追加する */
 	chosen->details->allocated_rsc = g_list_append(chosen->details->allocated_rsc, rsc);
+	/* 先端されたノードの配置リソース数をカウントアップする  */
 	chosen->details->num_resources++;
+	/* 先端されたノードカウント数をアップする */
 	chosen->count++;
 
 	return TRUE;

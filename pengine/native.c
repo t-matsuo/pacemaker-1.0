@@ -150,7 +150,7 @@ native_choose_node(resource_t *rsc)
 		crm_free(score);
 	}
 	
-	/* 選択されたノードを配置ノードにアサインする */
+	/* 選択されたノードを配置ノード(rsc->allocated_to)にアサインする */
 	return native_assign_node(rsc, nodes, chosen, FALSE);
 }
 
@@ -707,7 +707,9 @@ Recurring(resource_t *rsc, action_t *start, node_t *node,
 		);
     }
 }
-
+/*
+  native(primitve)リソースのアクションを生成
+*/
 void native_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 {
 	action_t *start = NULL;
@@ -739,6 +741,7 @@ void native_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 		}
 		
 	} else if(rsc->running_on != NULL) {
+		/* 既に単一ノードで起動済みのリソースの場合 */
 		node_t *current = rsc->running_on->data;
 		NoRoleChange(rsc, current, chosen, data_set);
 

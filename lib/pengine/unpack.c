@@ -402,6 +402,7 @@ unpack_status(xmlNode * status, pe_working_set_t *data_set)
 		    /* Everything else should flow from this automatically
 		     * At least until the PE becomes able to migrate off healthy resources 
 		     */
+		    /* 対象ノードをunclean状態に設定する */
 		    pe_fence_node(data_set, this_node, "because the cluster does not have quorum");
 		}
 		);
@@ -506,6 +507,7 @@ determine_online_status_no_fencing(pe_working_set_t *data_set, xmlNode * node_st
 		
 	} else {
 		/* mark it unclean */
+		/* 対象ノードをunclean状態に設定する */
 		pe_fence_node(data_set, this_node, "because it is partially and/or un-expectedly down");
 		crm_info("\tha_state=%s, ccm_state=%s,"
 			 " crm_state=%s, join_state=%s, expected=%s",
@@ -550,6 +552,7 @@ determine_online_status_fencing(pe_working_set_t *data_set, xmlNode * node_state
 	    if(safe_str_eq(join_state, CRMD_JOINSTATE_MEMBER)) {
 		online = TRUE;
 		if(do_terminate) {
+		    /* 対象ノードをunclean状態に設定する */
 		    pe_fence_node(data_set, this_node, "because termination was requested");
 		}
 
@@ -592,6 +595,7 @@ determine_online_status_fencing(pe_working_set_t *data_set, xmlNode * node_state
 			 crm_str(ha_state), crm_str(ccm_state),
 			 crm_str(crm_state), crm_str(join_state),
 			 crm_str(exp_state));
+		/* 対象ノードをunclean状態に設定する */
 		pe_fence_node(data_set, this_node, "because it is un-expectedly down");
 	    }
 		
@@ -628,6 +632,7 @@ determine_online_status_fencing(pe_working_set_t *data_set, xmlNode * node_state
 	    
 	} else if(this_node->details->expected_up) {
 		/* mark it unclean */
+		/* 対象ノードをunclean状態に設定する */
 		pe_fence_node(data_set, this_node, "because it is un-expectedly down");
 		crm_info("\tha_state=%s, ccm_state=%s,"
 			 " crm_state=%s, join_state=%s, expected=%s",
@@ -864,25 +869,27 @@ get_clone(char *last_rsc_id)
     }
     return -1;
 }
-
+/* 擬似リソースの作成処理 */
 static resource_t *
 create_fake_resource(const char *rsc_id, xmlNode *rsc_entry, pe_working_set_t *data_set) 
 {
 	resource_t *rsc = NULL;
+	/* 擬似リソース用に"primitive"ノードを作成する */
 	xmlNode *xml_rsc  = create_xml_node(NULL, XML_CIB_TAG_RESOURCE);
 	copy_in_properties(xml_rsc, rsc_entry);
 	crm_xml_add(xml_rsc, XML_ATTR_ID, rsc_id);
 	crm_log_xml_debug(xml_rsc, "Orphan resource");
-	
+	/* 共通展開処理を実行する */
 	common_unpack(xml_rsc, &rsc, NULL, data_set);
+	/* 孤立リソースフラグをセットする */
 	set_bit(rsc->flags, pe_rsc_orphan);
-	
+	/* 作成した孤立リソースをdata_setのリソース情報リストに追加する */
 	data_set->resources = g_list_append(data_set->resources, rsc);
 	return rsc;
 }
 
 extern resource_t *create_child_clone(resource_t *rsc, int sub_id, pe_working_set_t *data_set);
-
+/* クローンリソースの検索処理 */
 static resource_t *find_clone(pe_working_set_t *data_set, node_t *node, resource_t *parent, const char *rsc_id) 
 {
     int len = 0;
@@ -1009,6 +1016,7 @@ unpack_find_resource(
 	rsc = pe_find_resource(data_set->resources, alt_rsc_id);
 	/* no match */
 	if(rsc == NULL) {
+	    /* リソースがdata_setのリソース情報利リストに存在しない場合 */
 	    /* Even when clone-max=0, we still create a single :0 orphan to match against */
 	    char *tmp = clone_zero(alt_rsc_id);
 	    resource_t *clone0 = pe_find_resource(data_set->resources, tmp);
@@ -1029,30 +1037,34 @@ unpack_find_resource(
 	}
 	
 	crm_free(alt_rsc_id);
-	return rsc;
+	return rsc;	/* 検索結果を返す */
 }
-
+/* 孤立(orphan)リソースの処理 */
 static resource_t *
 process_orphan_resource(xmlNode *rsc_entry, node_t *node, pe_working_set_t *data_set) 
 {
 	resource_t *rsc = NULL;
 	const char *rsc_id   = crm_element_value(rsc_entry, XML_ATTR_ID);
-	
+	/* 孤立リソース検知のデバックログを出力する */
 	crm_debug("Detected orphan resource %s on %s", rsc_id, node->details->uname);	
+	/* 擬似リソースを作成する */
 	rsc = create_fake_resource(rsc_id, rsc_entry, data_set);
 	
 	if(is_set(data_set->flags, pe_flag_stop_rsc_orphans) == FALSE) {
+		/* stop-orphan-resourcesオプション(pe_flag_stop_rsc_orphansフラグ)がFALSEの場合は */
+	    /* 作成した擬似リソースのpe_rsc_managedフラグをクリアする */
 	    clear_bit(rsc->flags, pe_rsc_managed);
 		
 	} else {
 		print_resource(LOG_DEBUG_3, "Added orphan", rsc, FALSE);
 			
 		CRM_CHECK(rsc != NULL, return NULL);
+		/* 作成した擬似リソースをクラスタ内では配置不可としてlocation情報を追加する */
 		resource_location(rsc, NULL, -INFINITY, "__orphan_dont_run__", data_set);
 	}
 	return rsc;
 }
-
+/* 操作状態からリソース状態をセットする */
 static void
 process_rsc_state(resource_t *rsc, node_t *node,
 		  enum action_fail_response on_fail,
@@ -1060,6 +1072,7 @@ process_rsc_state(resource_t *rsc, node_t *node,
 		  pe_working_set_t *data_set) 
 {
 	if(on_fail == action_migrate_failure) {
+	    /* 最終故障がaction_migrate_failureだった場合 */
 	    node_t *from = NULL;
 	    const char *uuid = crm_element_value(migrate_op, CRMD_ACTION_MIGRATED);
 	    
@@ -1089,7 +1102,7 @@ process_rsc_state(resource_t *rsc, node_t *node,
 	     */
 	    on_fail = action_fail_ignore;
 	}
-	
+	/* 最終故障を判定する(故障していない場合は、処理されない) */
 	switch(on_fail) {
 	    case action_fail_ignore:
 		/* nothing to do */
@@ -1099,10 +1112,12 @@ process_rsc_state(resource_t *rsc, node_t *node,
 		/* treat it as if it is still running
 		 * but also mark the node as unclean
 		 */
+		/* action_fail_fenceの場合は、対象ノードをunclean状態に設定する処理 */
 		pe_fence_node(data_set, node, "to recover from resource failure(s)");
 		break;
 		
 	    case action_fail_standby:
+		/* action_fail_standbyの場合は、ノード情報のstandby,standby_onfailをTRUEにセットする */
 		node->details->standby = TRUE;
 		node->details->standby_onfail = TRUE;
 		break;
@@ -1111,6 +1126,7 @@ process_rsc_state(resource_t *rsc, node_t *node,
 		/* is_managed == FALSE will prevent any
 		 * actions being sent for the resource
 		 */
+		/* action_fail_blockの場合は、pe_rsc_managedフラグをクリアしてunmanaged状態にセットする */
 		clear_bit(rsc->flags, pe_rsc_managed);
 		break;
 		
@@ -1118,16 +1134,20 @@ process_rsc_state(resource_t *rsc, node_t *node,
 		/* make sure it comes up somewhere else
 		 * or not at all
 		 */
+		/* action_fail_migrateの場合は、リソースの移動を行う為に対象ノードに配置不可(-INFINITY)のlocation情報をセットする */
 		resource_location(rsc, node, -INFINITY,
 				  "__action_migration_auto__",data_set);
 		break;
 		
-	    case action_fail_stop:		
+	    case action_fail_stop:
+	    /* 	action_fail_stopの場合は、対象リソースのnext_roleをSTOPPEDにセットする */
 		rsc->next_role = RSC_ROLE_STOPPED;
 		break;
 		
 	    case action_fail_recover:
+		/* action_fail_recoverの場合 */
 		if(rsc->role != RSC_ROLE_STOPPED && rsc->role != RSC_ROLE_UNKNOWN) { 
+		    /* リソースの現在のroleがSTOPPED,UNKNOWN以外(起動している)は、pe_rsc_failedフラグをセットして、stopアクションをセット」する */
 		    set_bit(rsc->flags, pe_rsc_failed);
 		    stop_action(rsc, node, FALSE);
 		}
@@ -1139,6 +1159,7 @@ process_rsc_state(resource_t *rsc, node_t *node,
 	}
 	
 	if(rsc->role != RSC_ROLE_STOPPED && rsc->role != RSC_ROLE_UNKNOWN) {
+		/* --- 起動中のリソースの処理 --- */
 		/* roleがSTOPPPEDでもなくて、UNKNOWNでもない場合は、起動している */
 		if(is_set(rsc->flags, pe_rsc_orphan)) {
 		    if(is_set(rsc->flags, pe_rsc_managed)) {
@@ -1150,13 +1171,18 @@ process_rsc_state(resource_t *rsc, node_t *node,
 					rsc->id, node->details->uname);
 		    }
 		}
+		/* --- 起動中のnativeリソース情報をセットする --- */
 	    /* 起動しているので、リソースのrunnning_onリストにノード情報を追加する */
+		/* ノードのrunning_rscリストにもリソース情報を追加する */
+		/* unmanagedリソースの場合は、ノードを固定(INFINITY)する */
 		native_add_running(rsc, node, data_set);
 		if(on_fail != action_fail_ignore) {
+			/* pe_rsc_failedフラグをセット */
 		    set_bit(rsc->flags, pe_rsc_failed);
 		}
 			
 	} else if(rsc->clone_name) {
+		/* 起動していないリソースの場合で、clone_nameがセットされている場合は解放する */
 		crm_debug_2("Resetting clone_name %s for %s (stopped)",
 			    rsc->clone_name, rsc->id);
 		crm_free(rsc->clone_name);
@@ -1183,6 +1209,7 @@ process_recurring(node_t *node, resource_t *rsc,
 	
 	crm_debug_3("%s: Start index %d, stop index = %d",
 		    rsc->id, start_index, stop_index);
+	/* ソート済みのlrm_rsc_opノードのリストを全て処理する */
 	slist_iter(rsc_op, xmlNode, sorted_op_list, lpc,
 		   int interval = 0;
 		   char *key = NULL;
@@ -1191,37 +1218,45 @@ process_recurring(node_t *node, resource_t *rsc,
 		   if(node->details->online == FALSE) {
 			   crm_debug_4("Skipping %s/%s: node is offline",
 				       rsc->id, node->details->uname);
+				/* rm_rsc_opノード情報のノードが既にOFFLINEノードの場合も処理せずに抜ける */
 			   break;
 			   
 		   } else if(start_index < stop_index) {
+				/* 計算したstart操作とstop操作の関係で、stop操作が完了している場合は、処理せずに抜ける */
+				/* -- monitor処理はstop完了後なので実行されていないと判断する -- */
 			   crm_debug_4("Skipping %s/%s: not active",
 				       rsc->id, node->details->uname);
 			   break;
 			   
 		   } else if(lpc < start_index) {
+				/* 計算したstart操作よりも前の操作は処理しないで抜ける */
 			   crm_debug_4("Skipping %s/%s: old %d",
 				       id, node->details->uname, lpc);
 			   continue;
 		   }
-		   	
+		   /* "interval"属性を取り出し、数値化する */	
 		   interval_s = crm_element_value(rsc_op,XML_LRM_ATTR_INTERVAL);
 		   interval = crm_parse_int(interval_s, "0");
 		   if(interval == 0) {
+			   /* "inteval"属性値が0の場合は、probeなので処理しない */
 			   crm_debug_4("Skipping %s/%s: non-recurring",
 				       id, node->details->uname);
 			   continue;
 		   }
-		   
+		   /* "op-status"属性を取り出す */
 		   status = crm_element_value(rsc_op, XML_LRM_ATTR_OPSTATUS);
 		   if(safe_str_eq(status, "-1")) {
+				/* "op-status"属性が-1の場合は処理しない */
 			   crm_debug_4("Skipping %s/%s: status",
 				       id, node->details->uname);
 			   continue;
 		   }
+		   /* "operation"属性を取り出して、キーを生成する */
 		   task = crm_element_value(rsc_op, XML_LRM_ATTR_TASK);
 		   /* create the action */
 		   key = generate_op_key(rsc->id, task, interval);
 		   crm_debug_3("Creating %s/%s", key, node->details->uname);
+		   /* monitorなどでinterval実行されているアクションを生成する */
 		   custom_action(rsc, key, task, node, TRUE, TRUE, data_set);
 		);
 }
@@ -1316,6 +1351,7 @@ unpack_lrm_rsc_state(
 	rsc = unpack_find_resource(data_set, node, rsc_id, rsc_entry);
 	if(rsc == NULL) {
 		/* data_setのresourcesノードに存在しない場合は、孤立リソースとして処理する */
+		/* -- 擬似リソースを作成して、resourcesリストに追加 -- */
 		rsc = process_orphan_resource(rsc_entry, node, data_set);
 	} 
 	CRM_ASSERT(rsc != NULL);
@@ -1330,6 +1366,7 @@ unpack_lrm_rsc_state(
 	/* op_list(lrm_rsc_opノードの)リストを時系列でソートする */
 	sorted_op_list = g_list_sort(op_list, sort_op_by_callid);
 	/* ソートしたlrm_rsc_opノードのリストを全て処理する */
+	/* -- 全ての時系列ソート済みのlrm_rsc_opノードを処理してリソース操作を展開する -- */
 	slist_iter(
 		rsc_op, xmlNode, sorted_op_list, lpc,
 		/* lrm_rsc_opノードのoperation属性を取り出す */
@@ -1345,7 +1382,7 @@ unpack_lrm_rsc_state(
 		);
 
 	/* create active recurring operations as optional */ 
-	/* lrm_rsc_opタグのソート済みのリストから、実行中の操作のインデックスを計算する */
+	/* lrm_rsc_opタグのソート済みのリストから、start,stop操作のインデックスを取得する */
 	calculate_active_ops(sorted_op_list, &start_index, &stop_index);
 	/* 実行されているmonitor処理をアクション情報に追加する */
 	process_recurring(node, rsc, start_index, stop_index,
@@ -1355,6 +1392,7 @@ unpack_lrm_rsc_state(
 	g_list_free(sorted_op_list);
 	/* lrm_resource内の最後のlrm_rsc_opの実行操作のon-failから、そのリソースの状態 */
 	/*（次のロールや、エラーによってのリソースの配置不可のスコア(-INIFINITY)など)をセットする */
+	/* 起動済みと判定されたリソースはリソースのrunnning_onリストにノード情報を追加する */
 	process_rsc_state(rsc, node, on_fail, migrate_op, data_set);
 
 	if(get_target_role(rsc, &req_role)) {

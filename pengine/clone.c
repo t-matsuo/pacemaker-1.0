@@ -974,12 +974,15 @@ static void
 assign_node(resource_t *rsc, node_t *node, gboolean force)
 {
     if(rsc->children) {
+		/* 子リソースがある場合は、全ての子リソースの配置ノードをセットする */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
+		/* 指定ノードを配置ノード(rsc->allocated_to)にアサインする */
 		native_assign_node(child_rsc, NULL, node, force);
 	    );
 	return;
     }
+	/* 指定ノードを配置ノード(rsc->allocated_to)にアサインする */
     native_assign_node(rsc, NULL, node, force);
 }
 

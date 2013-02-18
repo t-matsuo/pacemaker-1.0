@@ -36,11 +36,12 @@ void
 native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 {
 	CRM_CHECK(node != NULL, return);
-
+	/* リソース情報のrunning_onリストを全て処理する */
 	slist_iter(
 		a_node, node_t, rsc->running_on, lpc,
 		CRM_CHECK(a_node != NULL, return);
 		if(safe_str_eq(a_node->details->id, node->details->id)) {
+			/* 既にリソース情報のrunning_onリストに設定されているノードが処理対象の場合は処理しない */
 			return;
 		}
 		);
@@ -49,6 +50,7 @@ native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 	/* リソース情報のrunning_onリストにノード情報を追加する(起動済み情報の登録) */
 	rsc->running_on = g_list_append(rsc->running_on, node);
 	if(rsc->variant == pe_native) {
+		/* native(primitvie)リソースの場合は、ノード情報のrunning_rscリストに対象リソース情報を追加する */
 		node->details->running_rsc = g_list_append(
 			node->details->running_rsc, rsc);
 	}
@@ -66,7 +68,8 @@ native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 		const char *class = crm_element_value(
 			rsc->xml, XML_AGENT_ATTR_CLASS);
 
-		
+		/* native(primitive)リソースが複数のノードで起動(running_onリストが１以上)している場合 */
+		/* エラー、警告ログを出力 */
 		/* these are errors because hardly any gets it right
 		 *   at the moment and this way the might notice
 		 */
@@ -76,17 +79,23 @@ native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 		       "http://clusterlabs.org/wiki/FAQ#Resource_is_Too_Active");
 		
 		if(rsc->recovery_type == recovery_stop_only) {
+			/* リソースのrecovery_typeがrecovery_stop_onlyの場合 */
 			crm_debug("Making sure %s doesn't come up again", rsc->id);
 			/* make sure it doesnt come up again */
+			/* リソース情報の配置可能ノード情報リストを解放する */
 			pe_free_shallow_adv(rsc->allowed_nodes, TRUE);
+			/* data_setのノード情報の内容をそのままリソース情報の配置可能ノード情報リストに複製する */
 			rsc->allowed_nodes = node_list_dup(
 				data_set->nodes, FALSE, FALSE);
+			/* 生成したリソース情報の配置可能ノード情報リストを全て処理して、weightに-INFINITY(配置不可)を設定する */
 			slist_iter(
 				node, node_t, rsc->allowed_nodes, lpc,
 				node->weight = -INFINITY;
 				);
 			
 		} else if(rsc->recovery_type == recovery_block) {
+			/* リソースのrecovery_typeがrecovery_blockの場合は、pe_rsc_managedフラグをクリア */
+			/* ここで、ノードを固定(INFINITY)は不要???? */
 		    clear_bit(rsc->flags, pe_rsc_managed);
 		}
 		
@@ -96,6 +105,7 @@ native_add_running(resource_t *rsc, node_t *node, pe_working_set_t *data_set)
 	}
 	
 	if(rsc->parent != NULL) {
+		/* 親リソースがある場合は、親リソースも同様に処理する */
 		native_add_running(rsc->parent, node, data_set);
 	}
 }
@@ -109,7 +119,7 @@ gboolean native_unpack(resource_t *rsc, pe_working_set_t *data_set)
 	crm_debug_3("Processing resource %s...", rsc->id);
 
 	crm_malloc0(native_data, sizeof(native_variant_data_t));
-
+	/* 配置ノード情報、起動済みノード情報リスト(runnning_on)をクリアする */
 	rsc->allowed_nodes	= NULL;
 	rsc->running_on		= NULL;
 
