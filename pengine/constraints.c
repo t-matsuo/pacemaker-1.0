@@ -699,8 +699,8 @@ rsc_colocation_new(const char *id, const char *node_attr, int score,
 	} 
 	/* id, rsc, with-rscなどの情報を生成したcolocation情報エリアにセットする */
 	new_con->id       = id;
-	new_con->rsc_lh   = rsc_lh;
-	new_con->rsc_rh   = rsc_rh;
+	new_con->rsc_lh   = rsc_lh;	/* rsc指定リソース */
+	new_con->rsc_rh   = rsc_rh;	/* with-rsc指定リソース */
 	new_con->score   = score;
 	new_con->role_lh = text2role(state_lh);
 	new_con->role_rh = text2role(state_rh);

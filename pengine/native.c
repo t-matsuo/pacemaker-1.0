@@ -276,8 +276,9 @@ rsc_merge_weights(resource_t *rsc, const char *rhs, GListPtr nodes, const char *
     node_list_update(work, rsc->allowed_nodes, attr, factor, only_positive);
     
     if(allow_rollback && can_run_any(work) == FALSE) {
-	crm_info("%s: Rolling back scores from %s", rhs, rsc->id);
 		/* allow_rollbackフラグがTRUEで、マージしたノードリスト情報で起動可能なノードがない場合 */
+		/* マージしなかったことを情報ログで出力 */
+	crm_info("%s: Rolling back scores from %s", rhs, rsc->id);
 		/* マージしたリストを破棄して、リソース情報のpe_rsc_mergingフラグをクリアする */
 	slist_destroy(node_t, n, work, crm_free(n));
 	clear_bit(rsc->flags, pe_rsc_merging);
@@ -819,10 +820,14 @@ void native_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 	}
 
 }
-
+/*
+ colocation制約のrsc指定側を処理する  
+ ---- リソースがcolocationでrsc指定されている場合の ---
+*/
 void native_rsc_colocation_lh(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
 {
+	/* rsc指定がNULLか、with-rsc指定がNULLの場合は処理しない */
 	if(rsc_lh == NULL) {
 		pe_err("rsc_lh was NULL for %s", constraint->id);
 		return;
@@ -834,10 +839,13 @@ void native_rsc_colocation_lh(
 	
 	crm_debug_2("Processing colocation constraint between %s and %s",
 		    rsc_lh->id, rsc_rh->id);
-	
+	/* with-rsc指定のwith-rsc指定側の処理を行う */
+	/* with-rsc指定側のスコアを反映できれば反映する */
 	rsc_rh->cmds->rsc_colocation_rh(rsc_lh, rsc_rh, constraint);		
 }
-
+/*
+	colocationを処理するかどうか判定する
+*/
 static gboolean
 filter_colocation_constraint(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
@@ -881,7 +889,9 @@ filter_colocation_constraint(
 
 	return TRUE;
 }
-
+/*
+ colocation反映処理
+*/
 static void
 colocation_match(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint) 
@@ -896,8 +906,9 @@ colocation_match(
 	if(constraint->node_attribute != NULL) {
 		attribute = constraint->node_attribute;
 	}
-
+	/* with-rsc指定リソースの配置先が決定している場合 */
 	if(rsc_rh->allocated_to) {
+		/* with-rsc指定リソースの配置先ノードのattrsハッシュテーブルから属性値を取得する */
 		value = g_hash_table_lookup(
 			rsc_rh->allocated_to->details->attrs, attribute);
 		do_check = TRUE;
@@ -906,16 +917,20 @@ colocation_match(
 		/* nothing to do:
 		 *   anti-colocation with something thats not running
 		 */
+		/* -INIFINITY値や負数のスコアは処理しない */
 		return;
 	}
-
+	/* rsc指定リソースの配置可能ノード情報リストを複製する */
 	work = node_list_dup(rsc_lh->allowed_nodes, FALSE, FALSE);
 	
+	/* 全ての複製リストを処理する */
 	slist_iter(
 		node, node_t, work, lpc,
 		tmp = g_hash_table_lookup(node->details->attrs, attribute);
 		if(do_check && safe_str_eq(tmp, value)) {
+			/* with-src指定リソースの配置先が決定していて、with-src指定リソースの配置先とrsc指定リソースの配置可能ノード情報と一致した場合 */
 		    if(constraint->score < INFINITY) {
+				/* スコアがINFINITY以下の場合は、スコアをrsc指定リソースの配置可能ノード情報のweightに加算 */
 			crm_debug_2("%s: %s.%s += %d", constraint->id, rsc_lh->id,
 				  node->details->uname, constraint->score);
 			node->weight = merge_weights(
@@ -923,8 +938,12 @@ colocation_match(
 		    }
 
 		} else if(do_check == FALSE || constraint->score >= INFINITY) {
+			/* with-src指定リソースの配置先が決定していないか、スコアがINFINITYの場合 */
 			crm_debug_2("%s: %s.%s -= %d (%s)", constraint->id, rsc_lh->id,
 				    node->details->uname, constraint->score, do_check?"failed":"unallocated");
+			/* スコアのマイナス値ををrsc指定リソースの配置可能ノード情報のweightに加算 */
+			/* with-src指定リソースの配置先が決まっていなければ、配置スコアはマイナス加算 */
+			/* または、with-rsc指定リソースの配置先に一致しないノード情報にはマイナスINFINITY加算 */
 			node->weight = merge_weights(-constraint->score, node->weight);
 		}
 		);
@@ -932,28 +951,37 @@ colocation_match(
 	if(can_run_any(work)
 	   || constraint->score <= -INFINITY
 	   || constraint->score >= INFINITY) {
+		/* rsc指定リソースの配置可能ノード情報リストに、リソースを実行可能なノードがない場合 */
+		/* または、スコアが-INFINITYもしくはINFINITY の場合は、*/
+		/* rsc指定リソースの配置可能ノード情報リストを廃棄して、上記処理でweight処理されたノード情報をセットする */
 		slist_destroy(node_t, node, rsc_lh->allowed_nodes, crm_free(node));
 		rsc_lh->allowed_nodes = work;
 		work = NULL;
 
 	} else {
+		/* rsc指定リソースの配置可能ノード情報リストにcolocationを反映しなかったことを情報ログで出力する */
 	    char *score = score2char(constraint->score);
 	    crm_info("%s: Rolling back scores from %s (%d, %s)",
 		     rsc_lh->id, rsc_rh->id, do_check, score);
 	    crm_free(score);
 	}
-
+	/* 複製リストを破棄する */
 	slist_destroy(node_t, node, work, crm_free(node));
 }
-
+/*
+ colocation制約のwith-rsc指定側を処理する  
+ ---- リソースがcolocationでwith-rsc指定されている場合の ---
+*/
 void native_rsc_colocation_rh(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
 {
+	/* 処理するcolocationをデバック出力 */
 	crm_debug_2("%sColocating %s with %s (%s, weight=%d)",
 		    constraint->score >= 0?"":"Anti-",
 		    rsc_lh->id, rsc_rh->id, constraint->id, constraint->score);
-	
+	/* colocationを処理するかどうか判定する */
 	if(filter_colocation_constraint(rsc_lh, rsc_rh, constraint) == FALSE) {
+		/* 処理しない場合は何もしない */
 		return;
 	}
 	
@@ -988,6 +1016,7 @@ void native_rsc_colocation_rh(
 		return;
 		
 	} else {
+		/* colocationを反映する */
 		colocation_match(rsc_lh, rsc_rh, constraint);
 	}
 }

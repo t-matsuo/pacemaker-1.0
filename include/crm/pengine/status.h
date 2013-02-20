@@ -188,8 +188,8 @@ struct resource_s {
 
 		unsigned long long flags;
 	
-		GListPtr rsc_cons_lhs;     /* rsc_colocation_t* */
-		GListPtr rsc_cons;         /* rsc_colocation_t* */
+		GListPtr rsc_cons_lhs;     /* rsc_colocation_t* *//* colocationで、自リソースがwith-rsc指定されている場合のcolocation情報 */
+		GListPtr rsc_cons;         /* rsc_colocation_t* *//* colocationで、自リソースがrsc指定されている場合のcolocation情報 */
 		GListPtr rsc_location;     /* rsc_to_node_t*    */
 		GListPtr actions;	   /* action_t*         */
 		/* リソース配置を決定したノード情報 */
