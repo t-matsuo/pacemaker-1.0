@@ -216,11 +216,14 @@ static crm_node_t *crm_new_peer(unsigned int id, const char *uname)
     
     return node;
 }
-
+/*
+  crm_peer_cacheキャッシュから接続ノード情報を取得する
+*/
 crm_node_t *crm_get_peer(unsigned int id, const char *uname)
 {
     crm_node_t *node = NULL;
     if(uname != NULL) {
+		/* unameパラメータが指定されている場合は、crm_peer_cacheキャッシュからunameに該当するノード情報を取得する */
 	node = g_hash_table_lookup(crm_peer_cache, uname);
     }
     
@@ -259,7 +262,9 @@ crm_node_t *crm_get_peer(unsigned int id, const char *uname)
     
     return node;
 }
-
+/*
+  クラスタに接続しているノード情報を更新する
+*/
 crm_node_t *crm_update_peer(
     unsigned int id, uint64_t born, uint64_t seen, int32_t votes, uint32_t children,
     const char *uuid, const char *uname, const char *addr, const char *state) 
@@ -369,11 +374,14 @@ crm_node_t *crm_update_ais_node(xmlNode *member, long long seq)
     /* TODO: These values will contain garbage if version < 0.7.1 */
     uint64_t born = crm_int_helper(born_s, NULL);
     uint64_t seen = crm_int_helper(seen_s, NULL);
-
+	/* クラスタに接続しているノード情報を更新する */
     return crm_update_peer(id, born, seen, votes, procs, uname, uname, addr, state);
 }
 
 #if SUPPORT_HEARTBEAT
+/*
+	CCMの通知情報からクラスタ接続ノード情報、プロセス情報を更新する
+*/
 crm_node_t *crm_update_ccm_node(
     const oc_ev_membership_t *oc, int offset, const char *state, uint64_t seq)
 {
@@ -381,23 +389,29 @@ crm_node_t *crm_update_ccm_node(
     const char *uuid = NULL;
     CRM_CHECK(oc->m_array[offset].node_uname != NULL, return NULL);
     uuid = get_uuid(oc->m_array[offset].node_uname);
+    /* クラスタに接続しているノード情報を更新する */
     node = crm_update_peer(oc->m_array[offset].node_id,
 			   oc->m_array[offset].node_born_on, seq, -1, 0,
 			   uuid, oc->m_array[offset].node_uname, NULL, state);
 
     if(safe_str_eq(CRM_NODE_ACTIVE, state)) {
-	/* Heartbeat doesn't send status notifications for nodes that were already part of the cluster */
+		/* ノードがACTIVEな場合 */
+		/* Heartbeat doesn't send status notifications for nodes that were already part of the cluster */
+		/*   クラスタに接続しているノード情報を更新する */
 	crm_update_peer_proc(
 	    oc->m_array[offset].node_uname, crm_proc_ais, ONLINESTATUS);
 
 	/* Nor does it send status notifications for processes that were already active */
+		/*   クラスタに接続しているプロセス情報を更新する */
 	crm_update_peer_proc(
 	   oc->m_array[offset].node_uname, crm_proc_crmd, ONLINESTATUS);
     }
     return node;
 }
 #endif
-
+/*
+  クラスタに接続しているプロセス情報を更新する
+*/
 void crm_update_peer_proc(const char *uname, uint32_t flag, const char *status) 
 {
     crm_node_t *node = NULL;

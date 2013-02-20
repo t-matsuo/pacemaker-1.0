@@ -95,35 +95,44 @@ crmd_ha_connection_destroy(gpointer user_data)
 	register_fsa_input(C_HA_DISCONNECT, I_ERROR, NULL);	
 	trigger_fsa(fsa_source);
 }
-
+/* 
+	Heartbeatからのクラスタメッセージを配送する
+*/
 void
 crmd_ha_msg_filter(xmlNode *msg)
 {
     if(AM_I_DC) {
+		/* 自ノードがDCノードの場合 */
 	const char *sys_from = crm_element_value(msg, F_CRM_SYS_FROM);
 	if(safe_str_eq(sys_from, CRM_SYSTEM_DC)) {
+			/* DCノードからの受信の場合 */
 	    const char *from = crm_element_value(msg, F_ORIG);
 	    if(safe_str_neq(from, fsa_our_uname)) {
+				/* 自ノードがDCノードにも関わらず、他のDCノードから受信した場合 */
 		int level = LOG_INFO;
 		const char *op = crm_element_value(msg, F_CRM_TASK);
 
 		/* make sure the election happens NOW */
 		if(fsa_state != S_ELECTION) {
+					/* S_ELECTION状態でなければエラー */
 		    ha_msg_input_t new_input;
 		    level = LOG_ERR;
 		    new_input.msg = msg;
+		    		/* 処理でエラーが発生した内部処理データにI_ELECTIONを登録する */
 		    register_fsa_error_adv(
 			C_FSA_INTERNAL, I_ELECTION, NULL, &new_input, __FUNCTION__);
 		}
-
+				/* 別のDCを検知したログを出力する */
 		do_crm_log(level, "Another DC detected: %s (op=%s)", from, op);
 		goto done;
 	    }
 	}
 
     } else {
+		/* 自ノードがDC以外の場合 */
 	const char *sys_to = crm_element_value(msg, F_CRM_SYS_TO);
 	if(safe_str_eq(sys_to, CRM_SYSTEM_DC)) {
+			/* 宛先がDCの場合は処理しない */
 	    return;
 	}
     }
@@ -136,6 +145,9 @@ crmd_ha_msg_filter(xmlNode *msg)
 }
 
 #if SUPPORT_HEARTBEAT
+/*
+	Heartbeatからのクラスタメッセージ処理コールバック
+*/
 void
 crmd_ha_msg_callback(HA_Message *hamsg, void* private_data)
 {
@@ -152,18 +164,23 @@ crmd_ha_msg_callback(HA_Message *hamsg, void* private_data)
 	crm_debug_2("HA[inbound]: %s from %s", op, from);
 
 	if(crm_peer_cache == NULL || crm_active_members() == 0) {
+		/* crm_peer_cacheキャッシュテーブルが未生成か、アクティブなノード数がまだ０の場合は処理しない */
+		/* Heartbeat層でまだ構成が取れていないし、crmdも起動していない状態 */
 		crm_debug("Ignoring HA messages until we are"
 			  " connected to the CCM (%s op from %s)", op, from);
 		crm_log_xml(LOG_MSG, "HA[inbound]: Ignore (No CCM)", msg);
 		goto bail;
 	}
-	
+	/* 送信元のノード情報を取り出す */
 	from_node = crm_get_peer(0, from);
 	if(crm_is_member_active(from_node) == FALSE) {
+		/* アクティブメンバーからのメッセージでない場合は、ログを出力して、処理しない */
 		if(safe_str_eq(op, CRM_OP_VOTE)) {
+			/* CRM_OP_VOTEメッセージを受信した場合 */
 			level = LOG_WARNING;
 
 		} else if(AM_I_DC && safe_str_eq(op, CRM_OP_JOIN_ANNOUNCE)) {
+			/* 自ノードがDCでCRM_OP_JOIN_ANNOUNCEを受信した場合 */
 			level = LOG_WARNING;
 
 		} else if(safe_str_eq(sys_from, CRM_SYSTEM_DC)) {
@@ -177,6 +194,7 @@ crmd_ha_msg_callback(HA_Message *hamsg, void* private_data)
 		crm_log_xml(LOG_MSG, "HA[inbound]: CCM Discard", msg);
 
 	} else {
+		/* アクティブなメンバーからのHeartbeat層からのクラスタメッセージを配送する */
 	    crmd_ha_msg_filter(msg);
 	}
 
@@ -259,11 +277,14 @@ lrm_dispatch(IPC_Channel *src_not_used, gpointer user_data)
 }
 
 extern gboolean process_lrm_event(lrm_op_t *op);
-
+/*
+	LRMDからのOP通知コールバック処理
+*/
 void
 lrm_op_callback(lrm_op_t* op)
 {
 	CRM_CHECK(op != NULL, return);
+	/* LRMイベント処理を実行する */
 	process_lrm_event(op);
 }
 
@@ -295,7 +316,10 @@ void ais_status_callback(enum crm_status_type type, crm_node_t *node, const void
 	/* TODO: potentially we also want to set XML_CIB_ATTR_JOINSTATE and XML_CIB_ATTR_EXPSTATE here */
     }
 }
-
+/*
+	Heartbeatからのノード statusメッセージ受信コールバック 
+	--- 他ノードでHeartbeatがオンライン・オフラインすると通知されるコールバック ----
+*/
 void
 crmd_ha_status_callback(const char *node, const char *status, void *private)
 {
@@ -304,43 +328,63 @@ crmd_ha_status_callback(const char *node, const char *status, void *private)
 	crm_notice("Status update: Node %s now has status [%s] (DC=%s)",
 		   node, status, AM_I_DC?"true":"false");
 
+	/* statusメッセージを受信した内容について、crm_peer_cacheキャッシュから接続ノード情報を取得する */
 	member = crm_get_peer(0, node);
 	if(member == NULL || crm_is_member_active(member) == FALSE) {
+		/* ノード情報がcrm_peer_cacheキャッシュに存在しないか */
+		/* アクティブなメンバーではない場合 */
 	    /* Make sure it is created so crm_update_peer_proc() succeeds */
 	    const char *uuid = get_uuid(node);
+      	/* クラスタに接続しているノード情報を更新する */
 	    member = crm_update_peer(0, 0, 0, -1, 0, uuid, node, NULL, NULL);
 	}
 
 	if(safe_str_eq(status, PINGSTATUS)) {
+		/* statusがPINGSTATUSの場合は処理しない */
 	    return;
 	}
 	
 	if(safe_str_eq(status, DEADSTATUS)) {
+		/* statusメッセージがDEADSTATUSだった場合 */
+	    /* this node is toast */
+      	/* クラスタに接続しているプロセス情報をOFFLINESTATUSに更新する */
 	    /* this node is toast */
 	    crm_update_peer_proc(node, crm_proc_ais, OFFLINESTATUS);
 	    if(AM_I_DC) {
+			/* 自ノードがDCノードの場合は、status更新用のXMLを生成する */
 		update = create_node_state(
 			node, DEADSTATUS, XML_BOOLEAN_NO, OFFLINESTATUS,
 			CRMD_JOINSTATE_DOWN, NULL, TRUE, __FUNCTION__);
 	    }
 	    
 	} else {
+		/* statusメッセージがDEADSTATUS以外だった場合 */
+      	/* クラスタに接続しているプロセス情報をONLINESTATUSに更新する */
 	    crm_update_peer_proc(node, crm_proc_ais, ONLINESTATUS);
 	    if(AM_I_DC) {
+			/* 自ノードがDCノードの場合は、status更新用のXMLを生成する */
 		update = create_node_state(
 			node, ACTIVESTATUS, NULL, NULL,
 			CRMD_JOINSTATE_PENDING, NULL, FALSE, __FUNCTION__);
 	    }
 	}
-		
+	/*
+	   fsa_sourceトリガーを叩いて、CRMDにHeartbeatからのノード status受信があったことを通知する
+	*/
 	trigger_fsa(fsa_source);
 
 	if(update != NULL) {
+		/* 更新用のXMLが生成されている場合は、CIBを更新する */
 	    fsa_cib_anon_update(
 		XML_CIB_TAG_STATUS, update, cib_scope_local|cib_quorum_override|cib_can_create);
+		/* 更新用のXMLを解放する */
 	    free_xml(update);
 	}
 }
+/*
+	Heartbeatからの接続crmd CLIENT statusメッセージ受信コールバック
+	--- 他ノードでcrmdが接続・切断すると通知されるコールバック ----
+*/
 
 void
 crmd_client_status_callback(const char * node, const char * client,
@@ -366,7 +410,7 @@ crmd_client_status_callback(const char * node, const char * client,
 		join   = CRMD_JOINSTATE_DOWN;
 /* 		clear_shutdown = TRUE; */
 	}
-	
+	/* Heartbeatからの受信フラグ(R_PEER_DATA)をセットする */
 	set_bit_inplace(fsa_input_register, R_PEER_DATA);
 
 	crm_notice("Status update: Client %s/%s now has status [%s] (DC=%s)",
@@ -395,7 +439,9 @@ crmd_client_status_callback(const char * node, const char * client,
 	
 	if(safe_str_eq(node, fsa_our_dc) && safe_str_eq(status, OFFLINESTATUS)){
 		/* did our DC leave us */
+		/* クラスタで認識しているDCノードが、OFFLINESTATUSになった場合 */
 		crm_info("Got client status callback - our DC is dead");
+		/* I_ELECTIONへ */
 		register_fsa_input(C_CRMD_STATUS_CALLBACK, I_ELECTION, NULL);
 		
 	} else if(AM_I_DC == FALSE) {
@@ -411,12 +457,15 @@ crmd_client_status_callback(const char * node, const char * client,
 	    free_xml(update);
 	    
 	    if(safe_str_eq(status, OFFLINESTATUS)) {
+			/* 	各種ハッシュテーブルから対象ノード情報を削除する */
 		erase_node_from_join(node);
 		check_join_state(fsa_state, __FUNCTION__);
 		fail_incompletable_actions(transition_graph, member->uuid);
 	    }
 	}
-	
+	/*
+	   fsa_sourceトリガーを叩いて、CRMDにHeartbeatからのClient status受信があったことを通知する
+	*/
 	trigger_fsa(fsa_source);
 }
 
@@ -456,7 +505,6 @@ crmd_ipc_connection_destroy(gpointer user_data)
 	
 	return;
 }
-
 gboolean
 crmd_client_connect(IPC_Channel *client_channel, gpointer user_data)
 {
@@ -495,7 +543,9 @@ crmd_client_connect(IPC_Channel *client_channel, gpointer user_data)
 
 
 #if SUPPORT_HEARTBEAT
-
+/*
+	CCMとの接続監視用？？？のコールバック
+*/
 gboolean ccm_dispatch(int fd, gpointer user_data)
 {
 	int rc = 0;
@@ -514,11 +564,15 @@ gboolean ccm_dispatch(int fd, gpointer user_data)
 		}
 		was_error = TRUE;
 	}
-
+	/*
+	   fsa_sourceトリガーを叩いて、CRMDにCCMからの受信があったことを通知する
+	*/
 	trigger_fsa(fsa_source);
 	return !was_error;
 }
-
+/*
+	ccmからのOC_EV_MEMB_CLASS通知コールバック処理
+*/
 void 
 crmd_ccm_msg_callback(
 	oc_ed_t event, void *cookie, size_t size, const void *data)
@@ -543,11 +597,11 @@ crmd_ccm_msg_callback(
 	}
 	
 	/*
-	 * OC_EV_MS_NEW_MEMBERSHIP:   membership with quorum
-	 * OC_EV_MS_MS_INVALID:       membership without quorum
-	 * OC_EV_MS_NOT_PRIMARY:      previous membership no longer valid
-	 * OC_EV_MS_PRIMARY_RESTORED: previous membership restored
-	 * OC_EV_MS_EVICTED:          the client is evicted from ccm.
+	 * OC_EV_MS_NEW_MEMBERSHIP:   membership with quorum(定数をもつ会員)
+	 * OC_EV_MS_MS_INVALID:       membership without quorum(定数をもたない会員)
+	 * OC_EV_MS_NOT_PRIMARY:      previous membership no longer valid(もはや有効でない前のメンバーシップ)
+	 * OC_EV_MS_PRIMARY_RESTORED: previous membership restored(回復する前のメンバーシップ)
+	 * OC_EV_MS_EVICTED:          the client is evicted from ccm.(クライアントは、ccmから追い出されます)
 	 */
 	
 	switch(event) {
@@ -563,6 +617,7 @@ crmd_ccm_msg_callback(
 			crm_peer_seq = membership->m_instance;
 			break;
 		case OC_EV_MS_EVICTED:
+			/* 内部メッセージにI_STOPをセットする */
 			update_quorum = TRUE;
 			register_fsa_input(C_FSA_INTERNAL, I_STOP, NULL);
 			crm_err("Shutting down after CCM event: %s",
@@ -573,25 +628,32 @@ crmd_ccm_msg_callback(
 	}
 
 	if(update_quorum) {
+		/* quorum更新が必要な場合 */
 	    crm_have_quorum = ccm_have_quorum(event);
 	    if(crm_have_quorum == FALSE) {
 		/* did we just loose quorum? */
-		if(fsa_has_quorum) {
+			/* quorumを消失してしまって、前のquorumが保持状態ならログを出力 */
+			if(fsa_has_quorum) {
 		    crm_info("Quorum lost: %s", ccm_event_name(event));
 		}
 	    }
+	    /* 自ノードがDC決定している場合は、CIBのhave_quorum属性を更新する */
+	    /* していない場合は、fsa_has_quorumのみquorum保持フラグを更新 */
 	    crm_update_quorum(crm_have_quorum, FALSE);
 	}
 	
 	if(update_cache) {
+		/* cache更新が必要な場合 */
 	    crm_debug_2("Updating cache after event %s", ccm_event_name(event));
+	    /*    crm_peer_cacheキャッシュ内のクラスタ接続ノード情報、プロセス情報を更新する */
 	    do_ccm_update_cache(C_CCM_CALLBACK, fsa_state, event, data, NULL);
 
 	} else if(event != OC_EV_MS_NOT_PRIMARY) {
 	    crm_peer_seq = membership->m_instance;
+        /* fsa_actionにA_TE_CANCELアクションを追加して、fsa_sourceトリガーを叩いてcrmdに通知する */
 	    register_fsa_action(A_TE_CANCEL);
 	}
-
+	/* ccmコールバックの終了処理 */
 	oc_ev_callback_done(cookie);
 	return;
 }
@@ -619,11 +681,15 @@ crmd_cib_connection_destroy(gpointer user_data)
 	return;
 }
 
-
+/*
+  トリガー処理
+  
+*/
 gboolean
 crm_fsa_trigger(gpointer user_data) 
 {
 	crm_debug_2("Invoked (queue len: %d)", g_list_length(fsa_message_queue));
+	/* トリガー契機からの状態処理を行う */
 	s_crmd_fsa(C_FSA_INTERNAL);
 	crm_debug_2("Exited  (queue len: %d)", g_list_length(fsa_message_queue));
 	return TRUE;	

@@ -64,6 +64,7 @@ do_timer_control(long long action,
 
 	/* dont start a timer that wasnt already running */
 	if(action & A_DC_TIMER_START && timer_op_ok) {
+		/* election_triggerタイマーを発動する */
 		crm_timer_start(election_trigger);
 		if(AM_I_DC) {
 		    /* there can be only one */
@@ -1186,7 +1187,7 @@ gboolean update_dc(xmlNode *msg)
 		} else {
 		    crm_warn("New DC %s is not %s", welcome_from, fsa_our_dc);
 		}
-
+			/* fsa_actionにA_CL_JOIN_QUERY | A_DC_TIMER_START アクションを追加して、fsa_sourceトリガーを叩いてcrmdに通知する */
 		register_fsa_action(A_CL_JOIN_QUERY|A_DC_TIMER_START);
 		return FALSE;
 	    }
@@ -1194,10 +1195,11 @@ gboolean update_dc(xmlNode *msg)
 
 	crm_free(fsa_our_dc_version);
 	fsa_our_dc_version = NULL;
-
+	/* 現在のDCノード情報をNULLクリアする */
 	fsa_our_dc = NULL; /* Free'd as last_dc */
 
 	if(welcome_from != NULL) {
+		/* welcom_fromのノードをDCノード(fsa_our_dc)にセットする */
 		fsa_our_dc = crm_strdup(welcome_from);
 	}
 	if(dc_version != NULL) {
@@ -1205,13 +1207,16 @@ gboolean update_dc(xmlNode *msg)
 	}
 
 	if(safe_str_eq(fsa_our_dc, last_dc)) {
+	    /* 以前に決定したDCノードと今回のDCノードに相違がない場合は、更新しない */
 	    /* do nothing */
 	    
 	} else if(fsa_our_dc != NULL) {
+		/* DCに相違があって、今回DCがセットされた場合は、Setログを出力する */
 	    crm_info("Set DC to %s (%s)",
 		     crm_str(fsa_our_dc), crm_str(fsa_our_dc_version));
 
 	} else if(last_dc != NULL) {
+		/* DCに相違があって、以前に決定したDCノードがNULLでない（決定済み）の場合は、Unsetログを出力する */
 	    crm_info("Unset DC %s", crm_str(last_dc));
 	}
 	

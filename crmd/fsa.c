@@ -130,7 +130,9 @@ init_dotfile(void)
 	do_dot_log(DOT_PREFIX"	\"S_RELEASE_DC\" [ fontcolor = \"green\" ]");
 	do_dot_log(DOT_PREFIX"	\"S_IDLE\" [ fontcolor = \"green\" ]");
 }
-
+/* 
+   CRMのアクション処理関数の実行
+*/
 static void
 do_fsa_action(fsa_data_t *fsa_data, long long an_action,
 	      void (*function)(long long action,
@@ -148,9 +150,12 @@ do_fsa_action(fsa_data_t *fsa_data, long long an_action,
 	if(an_action & A_MSG_ROUTE) {
 	    action_log_level = LOG_DEBUG_2;	
 	}
-	
+	/* 実行するべきfa_actionsから、これから実行するactionのビットを取り消す(実行済みにする) */
 	fsa_actions &= ~an_action;
 	do_crm_log(action_log_level, DOT_PREFIX"\t// %s", fsa_action2string(an_action));
+	/****************************************************/
+	/* パラメータで指定されたアクションの処理を実行する */
+	/****************************************************/
 	function(an_action, fsa_data->fsa_cause, fsa_state, fsa_data->fsa_input, fsa_data);
 }
 
@@ -182,7 +187,7 @@ s_crmd_fsa(enum crmd_fsa_cause cause)
 	while(is_message() && do_fsa_stall == FALSE) {
 		crm_debug_2("Checking messages (%d remaining)",
 			    g_list_length(fsa_message_queue));
-		
+		/* メッセージを取り出す */
 		fsa_data = get_message();
 		CRM_CHECK(fsa_data != NULL, continue);
 
@@ -190,8 +195,16 @@ s_crmd_fsa(enum crmd_fsa_cause cause)
 		
 		/* add any actions back to the queue */
 		fsa_actions |= fsa_data->actions;
-
 		/* get the next batch of actions */
+		/* メッセージのfsa_inputとfsa_stateから次アクションをcrmd_fsa_actions配列から取り出す */
+		/* Start時は 
+		   fsa_state = S_STARTING;
+		   fsa_data->fsa_input = I_STARTUP;
+			(snip)
+			/ Got an I_STARTUP /
+			/ S_STARTING		==> 	A_LOG|A_STARTUP|A_CIB_START|A_LRM_CONNECT|A_CCM_CONNECT|A_HA_CONNECT|A_READCONFIG|A_STARTED,
+			(snip)
+		*/
 		new_actions = crmd_fsa_actions[fsa_data->fsa_input][fsa_state];
 		fsa_actions |= new_actions;
 
@@ -232,11 +245,22 @@ s_crmd_fsa(enum crmd_fsa_cause cause)
 			do_fsa_action(fsa_data, A_WARN, do_log);
 		}
 		if(is_set(fsa_actions, A_LOG)) {
+			/* 取得したactionにA_LOGが含まれている場合 */
 			do_fsa_action(fsa_data, A_LOG, do_log);
 		}
 
 		/* update state variables */
+		/* 前回のfsa_stateを保存する */
 		last_state = fsa_state;
+		/* 次のfsa_stateをcrmd_fsa_state配列から取り出す */
+		/* Start時,S_STARTINGが得られる
+		   fsa_state = S_STARTING;
+		   fsa_data->fsa_input = I_STARTUP;
+		   (snip)
+		   / Got an I_STARTUP /
+		   / S_STARTING		==> /	S_STARTING,
+			(snip)
+		*/
 		fsa_state  = crmd_fsa_state[fsa_data->fsa_input][fsa_state];
 
 		/*
@@ -251,6 +275,9 @@ s_crmd_fsa(enum crmd_fsa_cause cause)
 		 * Allows actions to be added or removed when entering a state
 		 */
 		if(last_state != fsa_state){
+			/*	次のfsa_stateと前回のfsa_stateに変化があった場合は、
+				do_state_transition()を実行する
+			*/
 			fsa_actions = do_state_transition(
 				fsa_actions, last_state, fsa_state, fsa_data);
 		} else {
@@ -264,7 +291,9 @@ s_crmd_fsa(enum crmd_fsa_cause cause)
 		
 
 		/* start doing things... */
+		/* アクションを実行する */
 		s_crmd_fsa_actions(fsa_data);
+		/* 処理済みメッセージを破棄する */
 		delete_fsa_input(fsa_data);
 		fsa_data = NULL;
 	}
@@ -280,6 +309,7 @@ s_crmd_fsa(enum crmd_fsa_cause cause)
 	
 	/* cleanup inputs? */
 	if(register_copy != fsa_input_register) {
+		/* 入力時と処理後のフラグ状態の変化をログに出力する */
 		long long same = register_copy & fsa_input_register;
 		fsa_dump_inputs(LOG_DEBUG, "Added input:",
 				fsa_input_register ^ same);
@@ -292,7 +322,9 @@ s_crmd_fsa(enum crmd_fsa_cause cause)
 	return fsa_state;
 }
 
-
+/*
+   crmd_fsa_actions配列値のビット情報からアクションを実行する
+*/
 void
 s_crmd_fsa_actions(fsa_data_t *fsa_data)
 {
@@ -301,6 +333,8 @@ s_crmd_fsa_actions(fsa_data_t *fsa_data)
 	 * action at a time to avoid complicating the ordering.
 	 */
 	CRM_CHECK(fsa_data != NULL, return);
+	/* do_fsa_action()をビット情報から実行しながら、全てのアクションを実行する */
+	/* do_fsa_action()で実行済みのビットはクリアされる為、最終的にはアクション処理後にループ抜ける */
 	while(fsa_actions != A_NOTHING  && do_fsa_stall == FALSE) {
 		
 		/* regular action processing in order of action priority
@@ -331,19 +365,74 @@ s_crmd_fsa_actions(fsa_data_t *fsa_data)
 
 			/* essential start tasks */
 		} else if(fsa_actions & A_STARTUP) {
+			/* アクションのビットにA_STARTUPが含まれる場合 */
+			/* 処理前
+			   A_STARTUP|A_CIB_START|A_LRM_CONNECT|A_CCM_CONNECT|A_HA_CONNECT|A_READCONFIG|A_STARTED
+			*/
+			/* A_STARTUPアクションを実行する	*/
+			/* 
+    			1: トリガー作成
+    			2: CIB,LRMD接続インスタンス生成
+    			3: 各種タイマー情報作成
+    			4: cib,tengine,pengine情報作成
+    			5: 内部処理ハッシュテーブル作成
+			*/
 			do_fsa_action(fsa_data, A_STARTUP,	do_startup);
+			/* 処理後
+			   A_CIB_START|A_LRM_CONNECT|A_CCM_CONNECT|A_HA_CONNECT|A_READCONFIG|A_STARTED,
+			*/
 		} else if(fsa_actions & A_CIB_START) {
+			/* 処理前
+			   A_CIB_START|A_LRM_CONNECT|A_CCM_CONNECT|A_HA_CONNECT|A_READCONFIG|A_STARTED
+			*/
+			/* A_CIB_STRARTアクションを実行する */
+			/*
+				1: CIBへのサインオン （タイマーとトリガーによるリトライ有り)
+				2: 接続CIBとのcrm_feature_setのチェック(ただし、CIBからの通知はコールバック受信)
+			*/
 			do_fsa_action(fsa_data, A_CIB_START,	do_cib_control);
+			/* 処理後
+			   A_LRM_CONNECT|A_CCM_CONNECT|A_HA_CONNECT|A_READCONFIG|A_STARTED,
+			*/
 		} else if(fsa_actions & A_HA_CONNECT) {
+			/* 処理前
+			   A_HA_CONNECT|A_READCONFIG|A_STARTED,
+			*/
+			/* A_HA_CONNECTアクションを実行する */
 			do_fsa_action(fsa_data, A_HA_CONNECT,	do_ha_control);
-		} else if(fsa_actions & A_READCONFIG) {
+			/* 処理後
+			   A_READCONFIG|A_STARTED,
+			*/		} else if(fsa_actions & A_READCONFIG) {
 			do_fsa_action(fsa_data, A_READCONFIG,	do_read_config);
 
 			/* sub-system start/connect */
 		} else if(fsa_actions & A_LRM_CONNECT) {
+			/* 処理前
+			   A_LRM_CONNECT|A_CCM_CONNECT|A_HA_CONNECT|A_READCONFIG|A_STARTED,
+			*/
+			/* A_LRM_CONNECTアクションを実行する */
+			/*
+				1: LRMDへのサインオン(タイマーとトリガーによるリトライ有り)
+				2: LRMDからのOPコールバックセット
+				3: LRMDとの切断検知用のチャネル監視セット
+			*/
 			do_fsa_action(fsa_data, A_LRM_CONNECT,	do_lrm_control);
+			/* 処理後
+			   A_CCM_CONNECT|A_HA_CONNECT|A_READCONFIG|A_STARTED,
+			*/
 		} else if(fsa_actions & A_CCM_CONNECT) {
+			/* 処理前
+			   A_CCM_CONNECT|A_HA_CONNECT|A_READCONFIG|A_STARTED,
+			*/
+			/* A_CCM_CONNECTアクションを実行する */
+			/* 
+				1: CCMへの接続(タイマーとトリガーによるリトライ有り)
+				2: 接続コールバックセット
+			*/
 			do_fsa_action(fsa_data, A_CCM_CONNECT,	do_ccm_control);
+			/* 処理後
+			   A_HA_CONNECT|A_READCONFIG|A_STARTED,
+			*/
 		} else if(fsa_actions & A_TE_START) {
 			do_fsa_action(fsa_data, A_TE_START,	do_te_control);
 		} else if(fsa_actions & A_PE_START) {
@@ -371,16 +460,24 @@ s_crmd_fsa_actions(fsa_data_t *fsa_data)
 		} else if(fsa_actions & A_RECOVER) {
 			do_fsa_action(fsa_data, A_RECOVER,		do_recover);
 		} else if(fsa_actions & A_CL_JOIN_RESULT) {
+			/* A_CL_JOIN_RESULTアクション処理 */
+			/* CRM_OP_JOIN_ACKNAK もしくは、 CRM_OP_JOIN_CONFIRM メッセージ受信処理 */
 			do_fsa_action(fsa_data, A_CL_JOIN_RESULT,	do_cl_join_finalize_respond);
 		} else if(fsa_actions & A_CL_JOIN_REQUEST) {
+			/* A_CL_JOIN_REQUESTアクション処理 */
+			/* CRM_OP_JOIN_OFFER メッセージ受信処理 */
 			do_fsa_action(fsa_data, A_CL_JOIN_REQUEST,	do_cl_join_offer_respond);
 		} else if(fsa_actions & A_SHUTDOWN_REQ) {
 			do_fsa_action(fsa_data, A_SHUTDOWN_REQ,		do_shutdown_req);
 		} else if(fsa_actions & A_ELECTION_VOTE) {
+			/* A_ELECTION_VOTEアクション処理 */			
 			do_fsa_action(fsa_data, A_ELECTION_VOTE,	do_election_vote);
+			/* A_ELECTION_COUNTアクション処理 */			
 		} else if(fsa_actions & A_ELECTION_COUNT) {
 			do_fsa_action(fsa_data, A_ELECTION_COUNT,	do_election_count_vote);
 		} else if(fsa_actions & A_LRM_EVENT) {
+			/* A_LRM_EVENTアクション処理 */
+			/* LRMDイベント処理 */
 			do_fsa_action(fsa_data, A_LRM_EVENT,		do_lrm_event);
 
 			/*
@@ -389,34 +486,52 @@ s_crmd_fsa_actions(fsa_data_t *fsa_data)
 		} else if(fsa_actions & A_STARTED) {
 			do_fsa_action(fsa_data, A_STARTED,		do_started);
 		} else if(fsa_actions & A_CL_JOIN_QUERY) {
+			/* JOIN_QUERY処理 */
+			/* 既に存在するDCノードがあるかも知れないので、CRM_OP_JOIN_ANNOUNCEメッセージを送信 */
 			do_fsa_action(fsa_data, A_CL_JOIN_QUERY,	do_cl_join_query);
 		} else if(fsa_actions & A_DC_TIMER_START) {
 			do_fsa_action(fsa_data, A_DC_TIMER_START,	do_timer_control);
-
+			/* DCタイマー開始アクション(A_DC_TIMER_START)処理 */
 			/*
 			 * Medium priority actions
 			 */
 		} else if(fsa_actions & A_DC_TAKEOVER) {
+			/* A_DC_TAKEOVERアクション処理 */
+			/* DCノード開始処理 */
 			do_fsa_action(fsa_data, A_DC_TAKEOVER,		do_dc_takeover);
 		} else if(fsa_actions & A_DC_RELEASE) {
+			/* A_DC_RELEASEアクション処理 */
 			do_fsa_action(fsa_data, A_DC_RELEASE,		do_dc_release);
 		} else if(fsa_actions & A_DC_JOIN_FINAL) {
+			/* A_DC_JOIN_FINALアクション */
 			do_fsa_action(fsa_data, A_DC_JOIN_FINAL,	do_dc_join_final);
 		} else if(fsa_actions & A_ELECTION_CHECK) {
 			do_fsa_action(fsa_data, A_ELECTION_CHECK,	do_election_check);
+			/* A_ELECTION_CHECKアクション */
+			/* 構成メンバーが出揃ったらCRM_OP_JOIN_OFFERメッセージを送信する処理 */
 		} else if(fsa_actions & A_ELECTION_START) {
+			/* A_ELECTION_STARアクション */
 			do_fsa_action(fsa_data, A_ELECTION_START,	do_election_vote);
 		} else if(fsa_actions & A_TE_HALT) {
 			do_fsa_action(fsa_data, A_TE_HALT,		do_te_invoke);
 		} else if(fsa_actions & A_TE_CANCEL) {
 			do_fsa_action(fsa_data, A_TE_CANCEL,		do_te_invoke);
 		} else if(fsa_actions & A_DC_JOIN_OFFER_ALL) {
+			/* A_DC_JOIN_OFFER_ALLアクション処理 */
+			/* CRM_OP_JOIN_OFFERメッセージ送信処理 */
 			do_fsa_action(fsa_data, A_DC_JOIN_OFFER_ALL,	do_dc_join_offer_all);
 		} else if(fsa_actions & A_DC_JOIN_OFFER_ONE) {
+			/* A_DC_JOIN_OFFER_ONEアクション処理 */
+			/* CRM_OP_JOIN_OFFERメッセージ受信処理 */
+			/* DCノードが決定されている状態で、他にノードが参加してくる時の処理 */
 			do_fsa_action(fsa_data, A_DC_JOIN_OFFER_ONE,	do_dc_join_offer_all);
 		} else if(fsa_actions & A_DC_JOIN_PROCESS_REQ) {
+			/* A_DC_JOIN_PROCESS_REQアクション処理 */
+			/* CRM_OP_JOIN_REQUESTメッセージ受信処理 */
 			do_fsa_action(fsa_data, A_DC_JOIN_PROCESS_REQ,	do_dc_join_filter_offer);
 		} else if(fsa_actions & A_DC_JOIN_PROCESS_ACK) {
+			/* A_DC_JOIN_PROCESS_ACKアクション処理 */
+			/* CRM_OP_JOIN_CONFIRMメッセージを受信した後の処理 */
 			do_fsa_action(fsa_data, A_DC_JOIN_PROCESS_ACK,	do_dc_join_ack);
 
 			/*
@@ -425,12 +540,16 @@ s_crmd_fsa_actions(fsa_data_t *fsa_data)
 			 * PE, and the PE before the TE
 			 */
 		} else if(fsa_actions & A_DC_JOIN_FINALIZE) {
+			/* A_DC_JOIN_FINALIZEアクション処理 */
+			/* 全ての認識しているメンバーから、DCノードがCRM_OP_JOIN_REQUESTメッセージ受信を完了した後の処理 */
 			do_fsa_action(fsa_data, A_DC_JOIN_FINALIZE,	do_dc_join_finalize);
 		} else if(fsa_actions & A_LRM_INVOKE) {
 			do_fsa_action(fsa_data, A_LRM_INVOKE,		do_lrm_invoke);
 		} else if(fsa_actions & A_PE_INVOKE) {
 			do_fsa_action(fsa_data, A_PE_INVOKE,		do_pe_invoke);
 		} else if(fsa_actions & A_TE_INVOKE) {
+			/* A_TE_INVOKEアクション処理 */
+			/* pengineが計算したグラフをtengine部で処理する */
 			do_fsa_action(fsa_data, A_TE_INVOKE,		do_te_invoke);
 		} else if(fsa_actions & A_CL_JOIN_ANNOUNCE) {
 			do_fsa_action(fsa_data, A_CL_JOIN_ANNOUNCE,	do_cl_join_announce);
@@ -560,7 +679,7 @@ do_state_transition(long long actions,
 	    populate_cib_nodes(FALSE);
 	    do_update_cib_nodes(TRUE, __FUNCTION__);
 	}
-	
+	/* 次の移行ステータスを判定する */
 	switch(next_state) {
 		case S_PENDING:			
 			fsa_cib_conn->cmds->set_slave(fsa_cib_conn, cib_scope_local);

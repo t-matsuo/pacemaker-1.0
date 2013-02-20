@@ -124,11 +124,15 @@ pe_connection_destroy(gpointer user_data)
     pe_subsystem->pid = -1;
     pe_subsystem->ipc = NULL;
     pe_subsystem->client = NULL;
-
-    mainloop_set_trigger(fsa_source);
+	/*
+	   fsa_sourceトリガーを叩いて、crmdにpengineと切断したことを通知する
+	*/
+	mainloop_set_trigger(fsa_source);
     return;
 }
-
+/*
+  pengineからのメッセージ受信処理
+*/
 static gboolean
 pe_msg_dispatch(IPC_Channel *client, gpointer user_data) 
 {
@@ -140,6 +144,7 @@ pe_msg_dispatch(IPC_Channel *client, gpointer user_data)
 
 	msg = xmlfromIPC(client, MAX_IPC_DELAY);
 	if (msg != NULL) {
+			/* 受信メッセージを内部転送する */
 	    route_message(C_IPC_MESSAGE, msg);
 	    free_xml(msg);
 	}
@@ -149,7 +154,9 @@ pe_msg_dispatch(IPC_Channel *client, gpointer user_data)
 	crm_info("Received HUP from %s:[%d]", pe_subsystem->name, pe_subsystem->pid);	
 	stay_connected = FALSE;
     }
-
+	/*
+	   fsa_sourceトリガーを叩いて、crmdにpengineからの受信があったことを通知する
+	*/
     mainloop_set_trigger(fsa_source);
     return stay_connected;
 }
@@ -244,6 +251,7 @@ do_pe_invoke(long long action,
 	if(is_set(fsa_input_register, R_PE_CONNECTED) == FALSE){
 	    if(is_set(fsa_input_register, R_SHUTDOWN)) {
 		crm_err("Cannot shut down gracefully without the PE");
+			/* fsa_actionにA_PE_STARTアクションを追加して、fsa_sourceトリガーを叩いてcrmdに通知する */
 		register_fsa_input_before(C_FSA_INTERNAL, I_TERMINATE, NULL);
 
 	    } else {
@@ -262,7 +270,7 @@ do_pe_invoke(long long action,
 		register_fsa_input_before(C_FSA_INTERNAL, I_ELECTION, NULL);
 		return;		
 	}
-	
+	/* CIBの最新内容をquery処理で取得する */
 	fsa_pe_query = fsa_cib_conn->cmds->query(
 		fsa_cib_conn, NULL, NULL, cib_scope_local);
 
@@ -271,12 +279,14 @@ do_pe_invoke(long long action,
 	/* Make sure any queued calculations are discarded */
 	crm_free(fsa_pe_ref);
 	fsa_pe_ref = NULL;
-
+	/* query処理のコールバックをセットする */
 	fsa_cib_conn->cmds->register_callback(
 	    fsa_cib_conn, fsa_pe_query, 60, FALSE, NULL,
 	    "do_pe_invoke_callback", do_pe_invoke_callback);
 }
-
+/*
+	CIBへの最新内容のquery処理のコールバック
+*/
 void
 do_pe_invoke_callback(xmlNode *msg, int call_id, int rc,
 		      xmlNode *output, void *user_data)
@@ -308,6 +318,7 @@ do_pe_invoke_callback(xmlNode *msg, int call_id, int rc,
 		      last_peer_update);
 	    
 	    sleep(1);
+		/* fsa_actionにA_PE_INVOKEアクションを追加して、fsa_sourceトリガーを叩いてcrmdに通知する */
 	    register_fsa_action(A_PE_INVOKE);
 	    return;
 
@@ -324,13 +335,13 @@ do_pe_invoke_callback(xmlNode *msg, int call_id, int rc,
 	if(ever_had_quorum && crm_have_quorum == FALSE) {
 	    crm_xml_add_int(output, XML_ATTR_QUORUM_PANIC, 1);	    
 	}
-	
+	/* pengineに取得した最新のCIBによる計算を依頼する為に、CRM_OP_PECALCメッセージを生成する */
 	cmd = create_request(CRM_OP_PECALC, output, NULL,
 			     CRM_SYSTEM_PENGINE, CRM_SYSTEM_DC, NULL);
 
 	crm_free(fsa_pe_ref);
 	fsa_pe_ref = crm_element_value_copy(cmd, XML_ATTR_REFERENCE);
-
+	/* pengineに生成したメッセージを送信する */
 	if(send_ipc_message(pe_subsystem->ipc, cmd) == FALSE) {
 	    crm_err("Could not contact the pengine");
 	    register_fsa_error_adv(C_FSA_INTERNAL, I_ERROR, NULL, NULL, __FUNCTION__);

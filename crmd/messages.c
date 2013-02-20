@@ -176,8 +176,10 @@ register_fsa_input_adv(
 	/* make sure to free it properly later */
 	if(prepend) {
 		crm_debug_2("Prepending input");
+		/* メッセージキューに作成したPrependingデータをセットする */
 		fsa_message_queue = g_list_prepend(fsa_message_queue, fsa_data);
 	} else {
+		/* メッセージキューに作成したデータをセットする */
 		fsa_message_queue = g_list_append(fsa_message_queue, fsa_data);
 	}
 	
@@ -190,6 +192,8 @@ register_fsa_input_adv(
 	}
 
 	if(fsa_source) {
+		/* 起動直後は、fsa_sourceはまだ作成されていないので、トリガーはセットされない */
+		/* A_STARTUPアクション処理時にfsa_sourceは作成される */
 		crm_debug_3("Triggering FSA: %s", __FUNCTION__);
 		mainloop_set_trigger(fsa_source);
 	}
@@ -689,14 +693,17 @@ handle_request(xmlNode *stored_msg)
     }
     
 	/*========== DC-Only Actions ==========*/
-    if(AM_I_DC) {
+    if(AM_I_DC) {/* 自ノードがDCノードの場合 */
 	if(strcmp(op, CRM_OP_JOIN_ANNOUNCE) == 0) {
+			/* DCノード宛のCRM_OP_JOIN_ANNOUNCEメッセージを受信した時 */
 	    return I_NODE_JOIN;
 	    
 	} else if(strcmp(op, CRM_OP_JOIN_REQUEST) == 0) {
+			/* DCノード宛のCRM_OP_JOIN_REQUESTメッセージを受信した時 */
 	    return I_JOIN_REQUEST;
 	    
 	} else if(strcmp(op, CRM_OP_JOIN_CONFIRM) == 0) {
+			/* DCノード宛のCRM_OP_JOIN_CONFIRMメッセージ(JOIN_ACKNACKの応答)を受信した場合 */
 	    return I_JOIN_RESULT;
 	    
 	} else if(strcmp(op, CRM_OP_SHUTDOWN) == 0) {
@@ -727,12 +734,17 @@ handle_request(xmlNode *stored_msg)
     
 	/*========== common actions ==========*/
     if(strcmp(op, CRM_OP_NOVOTE) == 0) {
+		/* CRM_OP_VOTEメッセージを受信した場合は、 				*/
+		/* born数からDCになれないと思ったノードが送信してくるメッセージ */
 	ha_msg_input_t fsa_input;
 	fsa_input.msg = stored_msg;
 	register_fsa_input_adv(C_HA_MESSAGE, I_NULL, &fsa_input,
 			       A_ELECTION_COUNT|A_ELECTION_CHECK, FALSE, __FUNCTION__);
 	
     } else if(strcmp(op, CRM_OP_VOTE) == 0) {
+		/* CRM_OP_VOTEメッセージを受信した場合は、 				*/
+		/* 内部メッセージにI_NULLをアクションにA_ELECTION_COUNT|A_ELECTION_CHECKセットする */
+		/* --- これによって、構成メンバーが揃うまでの待ち合わせを行う ----- */
 	/* count the vote and decide what to do after that */
 	ha_msg_input_t fsa_input;
 	fsa_input.msg = stored_msg;
@@ -751,11 +763,13 @@ handle_request(xmlNode *stored_msg)
 	}
 	
     } else if(strcmp(op, CRM_OP_JOIN_OFFER) == 0) {
+		/* CRM_OP_JOIN_OFFERメッセージを受信した場合 */
 	crm_debug("Raising I_JOIN_OFFER: join-%s",
 		  crm_element_value(stored_msg, F_CRM_JOIN_ID));
 	return I_JOIN_OFFER;
 	
     } else if(strcmp(op, CRM_OP_JOIN_ACKNAK) == 0) {
+		/* CRM_OP_JOIN_ACKNAKメッセージを受信した場合 */
 	crm_debug("Raising I_JOIN_RESULT: join-%s",
 		  crm_element_value(stored_msg, F_CRM_JOIN_ID));
 	return I_JOIN_RESULT;

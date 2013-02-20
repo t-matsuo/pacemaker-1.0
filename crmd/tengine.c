@@ -123,6 +123,7 @@ do_te_control(long long action,
     crm_info("Registering TE UUID: %s", te_uuid);
 	
     if(transition_trigger == NULL) {
+		/* transition_triggerトリガーが未生成の場合は、生成する */
 	transition_trigger = mainloop_add_trigger(
 	    G_PRIORITY_LOW, te_graph_trigger, NULL);
     }
@@ -160,6 +161,7 @@ do_te_control(long long action,
 }
 
 /*	 A_TE_INVOKE, A_TE_CANCEL	*/
+/* tengine処理 */
 void
 do_te_invoke(long long action,
 	     enum crmd_fsa_cause cause,
@@ -196,6 +198,7 @@ do_te_invoke(long long action,
 		}
 		
 	} else if(action & A_TE_INVOKE) {
+		/* pengineが処理し受信したグラフを処理する */
 		const char *value = NULL;
 		xmlNode *graph_data = NULL;
 		ha_msg_input_t *input = fsa_typed_data(fsa_dt_ha_msg);
@@ -219,10 +222,11 @@ do_te_invoke(long long action,
 		    crm_info("Transition is redundant: %s vs. %s", crm_str(fsa_pe_ref), crm_str(ref));
 		    abort_transition(INFINITY, tg_restart, "Transition Redundant", NULL);
 		}
-		
+		/* pengineから受信したメッセージのグラフのxmlをセットする */
 		graph_data = input->xml;
 		
 		if(graph_data == NULL && graph_file != NULL) {
+			/* ファイル通知の場合は、ファイルからグラフのxmlをセットする */
 		    graph_data = filename2xml(graph_file);
 		}
 
@@ -235,8 +239,9 @@ do_te_invoke(long long action,
 			  crm_err("Input raised by %s is invalid", msg_data->origin);
 			  crm_log_xml_err(input->msg, "Bad command");
 			  return);
-		
+		/* 実行グラフを破棄する */
 		destroy_graph(transition_graph);
+		/* 実行グラフに展開する */
 		transition_graph = unpack_graph(graph_data, graph_input);
 		CRM_CHECK(transition_graph != NULL, transition_graph = create_blank_graph(); return);
 		crm_info("Processing graph %d (ref=%s) derived from %s", transition_graph->id, ref, graph_input);
@@ -253,6 +258,7 @@ do_te_invoke(long long action,
 		    failed_start_offset = crm_strdup(value);
 		}
 		
+		/* トリガーを叩いてグラフを処理する */
 		trigger_graph();
 		print_graph(LOG_DEBUG_2, transition_graph);
 		

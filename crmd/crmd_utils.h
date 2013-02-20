@@ -84,6 +84,7 @@ extern const char *get_timer_desc(fsa_timer_t *timer);
 #define start_transition(state) do {					\
 	switch(state) {							\
 	    case S_TRANSITION_ENGINE:					\
+   		/* fsa_actionにA_TE_CANCELアクションを追加して、fsa_sourceトリガーを叩いてcrmdに通知する */
 		register_fsa_action(A_TE_CANCEL);			\
 		break;							\
 	    case S_POLICY_ENGINE:					\

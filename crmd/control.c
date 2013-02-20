@@ -126,7 +126,8 @@ crm_ais_destroy(gpointer user_data)
     exit(1);
 }
 #endif
-
+/* Heartbeat/Corosync接続処理 */
+/*	 Heartbeat/Corosync関連のアクションを実行する	*/
 void
 do_ha_control(long long action,
 	       enum crmd_fsa_cause cause,
@@ -430,6 +431,14 @@ do_exit(long long action,
 }
 
 /*	 A_STARTUP	*/
+/*	 A_STARTUPアクションを実行する	*/
+/* 
+    1: トリガー作成
+    2: CIB,LRMD接続インスタンス生成
+    3: 各種タイマー情報作成
+    4: cib,tengine,pengine情報作成
+    5: 内部処理ハッシュテーブル作成
+*/
 void
 do_startup(long long action,
 	   enum crmd_fsa_cause cause,
@@ -441,17 +450,22 @@ do_startup(long long action,
 	int interval = 1; /* seconds between DC heartbeats */
 
 	crm_debug("Registering Signal Handlers");
+	/* SIGTERMハンドラをセットする */
 	mainloop_add_signal(SIGTERM, crm_shutdown);
 
+	/* fsa_sourceトリガー、config_readトリガーを作成する */
+	/* トリガーセット時の呼び出しハンドラは、crm_fsa_trigger()と,crm_read_options() */
 	fsa_source = mainloop_add_trigger(G_PRIORITY_HIGH, crm_fsa_trigger, NULL);
 	config_read = mainloop_add_trigger(G_PRIORITY_HIGH, crm_read_options, NULL);
 
 	ipc_clients = g_hash_table_new(g_str_hash, g_str_equal);
 	
 	crm_debug("Creating CIB and LRM objects");
+	/* CIB,LRMD接続インスタンスを生成する */
 	fsa_cib_conn = cib_new();
 	fsa_lrm_conn = ll_lrm_new(XML_CIB_TAG_LRM);	
 	
+	/* 各種タイマー情報を作成する */
 	/* set up the timers */
 	crm_malloc0(transition_timer, sizeof(fsa_timer_t));
 	crm_malloc0(integration_timer, sizeof(fsa_timer_t));
@@ -463,7 +477,7 @@ do_startup(long long action,
 	crm_malloc0(recheck_timer, sizeof(fsa_timer_t));
 
 	interval = interval * 1000;
-
+	/* 存在ＤＣ検知用のタイマー */
 	if(election_trigger != NULL) {
 		election_trigger->source_id = 0;
 		election_trigger->period_ms = -1;
@@ -473,7 +487,7 @@ do_startup(long long action,
 	} else {
 		was_error = TRUE;
 	}
-	
+	/* DCになれそうなノードがDC化する場合に利用されるタイマー */
 	if(election_timeout != NULL) {
 		election_timeout->source_id = 0;
 		election_timeout->period_ms = -1;
@@ -493,7 +507,7 @@ do_startup(long long action,
 	} else {
 		was_error = TRUE;
 	}
-	
+	/* S_INTEGRATION状態で利用されるタイマー */
 	if(integration_timer != NULL) {
 		integration_timer->source_id = 0;
 		integration_timer->period_ms = -1;
@@ -503,7 +517,7 @@ do_startup(long long action,
 	} else {
 		was_error = TRUE;
 	}
-	
+	/* S_FINALIZE_JOIN状態で利用されるタイマー */
 	if(finalization_timer != NULL) {
 		finalization_timer->source_id = 0;
 		finalization_timer->period_ms = -1;
@@ -559,6 +573,7 @@ do_startup(long long action,
 	}
 	
 	/* set up the sub systems */
+	/* cib,tengine,pengineサブシステム情報を作成する */
 	crm_malloc0(cib_subsystem, sizeof(struct crm_subsystem_s));
 	crm_malloc0(te_subsystem,  sizeof(struct crm_subsystem_s));
 	crm_malloc0(pe_subsystem,  sizeof(struct crm_subsystem_s));
@@ -603,9 +618,10 @@ do_startup(long long action,
 	}
 
 	if(was_error) {
+		/* 処理でエラーが発生した内部処理データにI_ERRORを登録する */
 		register_fsa_error(C_FSA_INTERNAL, I_ERROR, NULL);
 	}
-	
+	/* 各種ハッシュテーブルを作成する */
 	welcomed_nodes = g_hash_table_new_full(
 		g_str_hash, g_str_equal,
 		g_hash_destroy_str, g_hash_destroy_str);
@@ -634,6 +650,7 @@ do_stop(long long action,
 }
 
 /*	 A_STARTED	*/
+/* A_STARTEDアクション処理(起動関連の最後のアクション処理になる) */
 void
 do_started(long long action,
 	   enum crmd_fsa_cause cause,
@@ -641,6 +658,7 @@ do_started(long long action,
 	   enum crmd_fsa_input current_input,
 	   fsa_data_t *msg_data)
 {
+	/* ステータスと各種プロセスとの接続状態をチェックする */
 	if(cur_state != S_STARTING) {
 	    crm_err("Start cancelled... %s", fsa_state2string(cur_state));
 	    return;
@@ -674,6 +692,7 @@ do_started(long long action,
 		return;
 
 	} else if(is_set(fsa_input_register, R_PEER_DATA) == FALSE) {
+		/* HeartbeatからのSTATUS受信フラグ(R_PEER_DATA)がセットされていない場合 */
 		HA_Message *msg = NULL;
 
 		/* try reading from HA */
@@ -698,15 +717,23 @@ do_started(long long action,
 	if(ipc_server == NULL) {
 		ipc_server = crm_strdup(CRM_SYSTEM_CRMD);
 	}
-
+	/* CRMDのServer(クライアント接続待ち)のIPCを生成する */
 	if(init_server_ipc_comms(ipc_server, crmd_client_connect,
 				 default_ipc_connection_destroy)) {
 	    crm_err("Couldn't start IPC server");
 	    register_fsa_error(C_FSA_INTERNAL, I_ERROR, NULL);
 	}
-
+	/* R_STARTINGフラグをクリアする */
 	crm_info("The local CRM is operational");
 	clear_bit_inplace(fsa_input_register, R_STARTING);
+	/* 内部メッセージにI_PENDINGをセットする */
+	/* register_fsa_input()内からfsa_sourceのトリガーが叩かれるのでI_PENDINGでs_crmd_fsa()に
+	   処理が進むはず
+	/* 以下のはず....
+	/* Got an I_PENDING 
+	
+		 S_STARTING		==> A_LOG|A_DC_TIMER_START|A_CL_JOIN_QUERY,
+	*/
 	register_fsa_input(msg_data->fsa_cause, I_PENDING, NULL);
 }
 
@@ -836,13 +863,17 @@ config_query_callback(xmlNode *msg, int call_id, int rc,
   bail:
 	free_ha_date(now);
 }
-
+/*
+  config_readトリガーから実行されるread処理
+*/
 gboolean
 crm_read_options(gpointer user_data)
 {
     int call_id = fsa_cib_conn->cmds->query(
+	/* CIBのquery処理を実行する */
 	fsa_cib_conn, XML_CIB_TAG_CRMCONFIG, NULL, cib_scope_local);
     
+    /* query処理のコールバックをセットする */
     add_cib_op_callback(fsa_cib_conn, call_id, FALSE, NULL, config_query_callback);
     crm_debug_2("Querying the CIB... call %d", call_id);
     return TRUE;
@@ -856,6 +887,7 @@ do_read_config(long long action,
 	       enum crmd_fsa_input current_input,
 	       fsa_data_t *msg_data)
 {
+	/* config_readトリガーを叩く */
     mainloop_set_trigger(config_read);	    
 }
 
@@ -905,6 +937,9 @@ default_cib_update_callback(xmlNode *msg, int call_id, int rc,
 }
 
 #if SUPPORT_HEARTBEAT
+/*
+   Heartbeatの認識しているノード情報でCIBを更新する
+*/
 static void
 populate_cib_nodes_ha(gboolean with_client_status)
 {
@@ -913,25 +948,27 @@ populate_cib_nodes_ha(gboolean with_client_status)
 	xmlNode *cib_node_list = NULL;
 
 	if(fsa_cluster_conn == NULL) {
+		/* Heartbeat未接続の場合は、処理しない */
 	    crm_debug("Not connected");
 	    return;
 	}
 	
 	/* Async get client status information in the cluster */
 	crm_info("Requesting the list of configured nodes");
+	/* Heartbeatのinit_nodewalk処理を実行する */
 	fsa_cluster_conn->llc_ops->init_nodewalk(fsa_cluster_conn);
-
+	/* 更新用のxmlを生成する */
 	cib_node_list = create_xml_node(NULL, XML_CIB_TAG_NODES);
 	do {
 		const char *ha_node_type = NULL;
 		const char *ha_node_uuid = NULL;
 		xmlNode *cib_new_node = NULL;
-
+		/* Heartbeatのnexnode()を使って接続ノードを手繰る */
 		ha_node = fsa_cluster_conn->llc_ops->nextnode(fsa_cluster_conn);
 		if(ha_node == NULL) {
 			continue;
 		}
-		
+		/* 手繰ったノードのタイプを取得する */
 		ha_node_type = fsa_cluster_conn->llc_ops->node_type(
 			fsa_cluster_conn, ha_node);
 		if(safe_str_neq(NORMALNODE, ha_node_type)) {
@@ -939,9 +976,10 @@ populate_cib_nodes_ha(gboolean with_client_status)
 				  ha_node, ha_node_type);
 			continue;
 		}
-
+		/* 手繰ったノードのUUIDを取得する */
 		ha_node_uuid = get_uuid(ha_node);
 		if(ha_node_uuid == NULL) {
+			/* UUNIDが取得出来ない場合は、次 */
 			crm_warn("Node %s: no uuid found", ha_node);
 			continue;	
 		}
@@ -953,15 +991,17 @@ populate_cib_nodes_ha(gboolean with_client_status)
 		crm_xml_add(cib_new_node, XML_ATTR_TYPE,  ha_node_type);
 
 	} while(ha_node != NULL);
-
+	/* Heartbeatのnodewalk処理を終了する */
 	fsa_cluster_conn->llc_ops->end_nodewalk(fsa_cluster_conn);
 	
 	/* Now update the CIB with the list of nodes */
+	/* 更新用のxmlでCIBのnodes情報を更新する */
 	fsa_cib_update(
 		XML_CIB_TAG_NODES, cib_node_list,
 		cib_scope_local|cib_quorum_override, call_id);
+	/* 更新コールバックをセットする */
 	add_cib_op_callback(fsa_cib_conn, call_id, FALSE, NULL, default_cib_update_callback);
-
+	/* 更新用のxmlを解放する */
 	free_xml(cib_node_list);
 	crm_debug_2("Complete");
 }
@@ -980,7 +1020,9 @@ static void create_cib_node_definition(
     crm_xml_add(cib_new_node, XML_ATTR_UNAME, node->uname);
     crm_xml_add(cib_new_node, XML_ATTR_TYPE,  NORMALNODE);
 }
-
+/*
+  CIBのnodes情報を設定する
+*/
 void
 populate_cib_nodes(gboolean with_client_status)
 {
@@ -988,6 +1030,7 @@ populate_cib_nodes(gboolean with_client_status)
     xmlNode *cib_node_list = NULL;
 #if SUPPORT_HEARTBEAT
     if(is_heartbeat_cluster()) {
+		/* Heartbaetの場合は、Heartbeatの認識しているノード情報でCIBを更新する */
 	populate_cib_nodes_ha(with_client_status);
 	return;
     }

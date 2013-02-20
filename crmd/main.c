@@ -105,21 +105,57 @@ main(int argc, char ** argv)
     return crmd_init();
 }
 
+/*
+  crmd起動初期処理
 
+
+ C_で表現される原因は以下が用意されている
+ 
+enum crmd_fsa_cause
+{
+	C_UNKNOWN = 0,
+	C_STARTUP,
+	C_IPC_MESSAGE,
+	C_HA_MESSAGE,
+	C_CCM_CALLBACK,
+	C_CRMD_STATUS_CALLBACK,
+	C_LRM_OP_CALLBACK,
+	C_LRM_MONITOR_CALLBACK,
+	C_TIMER_POPPED,
+	C_SHUTDOWN,
+	C_HEARTBEAT_FAILED,
+	C_SUBSYSTEM_CONNECT,
+	C_HA_DISCONNECT,
+	C_FSA_INTERNAL,
+	C_ILLEGAL
+};
+*/
 int
 crmd_init(void)
 {
     int exit_code = 0;
     enum crmd_fsa_state state;
-
+	/* 最初のfsa_stateをS_STARTINGにセット */
     fsa_state = S_STARTING;
     fsa_input_register = 0; /* zero out the regester */
 
     init_dotfile();
     crm_info("Starting %s", crm_system_name);
+	/* Start時の自処理入力データを作成する */
+	/*
+	fsa_data->id        = last_data_id;
+	fsa_data->fsa_input = I_STARTUP;
+	fsa_data->fsa_cause = C_STARTUP;
+	fsa_data->origin    = raised_from;
+	fsa_data->data      = NULL;
+	fsa_data->data_type = fsa_dt_none;
+	fsa_data->actions   = with_actions;
+	
+	 #define register_fsa_input(cause, input, data) register_fsa_input_adv(cause, input, data, A_NOTHING, FALSE, __FUNCTION__)
+	*/
     register_fsa_input(C_STARTUP, I_STARTUP, NULL);
-
     crm_peer_init();
+    /* 最初のS_STARTING/C_STARTUP/I_STARTUP状態を処理する */
     state = s_crmd_fsa(C_STARTUP);
     
     if (state == S_PENDING || state == S_STARTING) {
@@ -136,6 +172,7 @@ crmd_init(void)
 	    }
 	    cl_make_realtime(SCHED_RR, 5, 64, 64);
 #endif
+		/* メインループ開始 */
 	    g_main_run(crmd_mainloop);
 	    if(is_set(fsa_input_register, R_STAYDOWN)) {
 		    crm_info("Inhibiting respawn by Heartbeat");

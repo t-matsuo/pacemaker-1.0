@@ -108,6 +108,8 @@ void lrm_connection_destroy(gpointer user_data)
 }
 
 /*	 A_LRM_CONNECT	*/
+/* LRM接続処理 */
+/*	 LRMD関連のアクションを実行する	*/
 void
 do_lrm_control(long long action,
 	       enum crmd_fsa_cause cause,
@@ -116,11 +118,13 @@ do_lrm_control(long long action,
 	       fsa_data_t *msg_data)
 {
 	if(fsa_lrm_conn == NULL) {
+		/* LRMD接続インスタンスがNULLの場合はエラー */
 	    register_fsa_error(C_FSA_INTERNAL, I_ERROR, NULL);
 	    return;
 	}
 
 	if(action & A_LRM_DISCONNECT) {
+		/* アクションが切断(A_LRM_DISCONNECTの場合 */
 		if(verify_stopped(cur_state, LOG_INFO) == FALSE) {
 		    if(action == A_LRM_DISCONNECT) {
 			crmd_fsa_stall(NULL);
@@ -154,8 +158,9 @@ do_lrm_control(long long action,
 	}
 
 	if(action & A_LRM_CONNECT) {
+		/* アクションが接続(A_LRM_CONNECT)の場合 */
 		int ret = HA_OK;
-		
+		/* 各種ハッシュテーブルを作成する */
 		deletion_ops = g_hash_table_new_full(
 			g_str_hash, g_str_equal,
 			g_hash_destroy_str, free_deletion_op);
@@ -169,12 +174,16 @@ do_lrm_control(long long action,
 			g_hash_destroy_str, g_hash_destroy_str);
 		
 		if(ret == HA_OK) {
+			/*
+				LRMDにサインオンする
+			*/
 			crm_debug("Connecting to the LRM");
 			ret = fsa_lrm_conn->lrm_ops->signon(
 				fsa_lrm_conn, CRM_SYSTEM_CRMD);
 		}
 		
 		if(ret != HA_OK) {
+			/* サインオンに失敗した場合は、タイマー(トリガーも)を利用してリトライする */
 			if(++num_lrm_register_fails < max_lrm_register_fails) {
 				crm_warn("Failed to sign on to the LRM %d"
 					 " (%d max) times",
@@ -189,6 +198,7 @@ do_lrm_control(long long action,
 
 		if(ret == HA_OK) {
 			crm_debug_4("LRM: set_lrm_callback...");
+			/* サインオンに成功した場合は、lrmdからのOPコールバックをlrm_op_callback()にセットする */
 			ret = fsa_lrm_conn->lrm_ops->set_lrm_callback(
 				fsa_lrm_conn, lrm_op_callback);
 			if(ret != HA_OK) {
@@ -206,18 +216,20 @@ do_lrm_control(long long action,
 		/* TODO: create a destroy handler that causes
 		 * some recovery to happen
 		 */
+		/* LRMDの切断検知用にIPC接続を作成して、切断を監視する */
 		lrm_source = G_main_add_IPC_Channel(
 			G_PRIORITY_LOW,
 			fsa_lrm_conn->lrm_ops->ipcchan(fsa_lrm_conn),
 			FALSE, lrm_dispatch, fsa_lrm_conn,
 			lrm_connection_destroy);
-
+		/* R_LRM_CONNECTEDビットをセットする */
 		set_bit_inplace(fsa_input_register, R_LRM_CONNECTED);
 		crm_debug("LRM connection established");
 		
 	}	
 
 	if(action & ~(A_LRM_CONNECT|A_LRM_DISCONNECT)) {
+		/* 処理出来ないACTIONの場合はエラー */
 		crm_err("Unexpected action %s in %s",
 		       fsa_action2string(action), __FUNCTION__);
 	}
@@ -848,7 +860,10 @@ build_active_RAs(xmlNode *rsc_list)
 
 	return TRUE;
 }
-
+/*
+	LRDM関連query処理
+	XML_CIB_TAG_STATE("node_state")データを生成する
+*/
 xmlNode*
 do_lrm_query(gboolean is_replace)
 {
@@ -863,19 +878,22 @@ do_lrm_query(gboolean is_replace)
 		exp_state = CRMD_STATE_INACTIVE;
 		shut_down = TRUE;
 	}
-	
+	/* XML_CIB_TAG_STATE("node_state")のXMLを属性付きで生成する */
 	xml_state = create_node_state(
 		fsa_our_uname, ACTIVESTATUS, XML_BOOLEAN_TRUE,
 		ONLINESTATUS, CRMD_JOINSTATE_MEMBER, exp_state,
 		!shut_down, __FUNCTION__);
-
+	/* 生成したxml_stateのXMLにXML_CIB_TAG_LRM("lrm")ノードを追加する */
 	xml_data  = create_xml_node(xml_state, XML_CIB_TAG_LRM);
+	/* 生成したxml_dataのXMLにXML_ATTR_ID("id")を自ノードのUUIDで追加する */
 	crm_xml_add(xml_data, XML_ATTR_ID, fsa_our_uuid);
+	/* 生成したxml_dataのXMLにXML_LRM_TAG_RESOURCES("lrm_resources")ノードを追加する */
 	rsc_list  = create_xml_node(xml_data, XML_LRM_TAG_RESOURCES);
 
 	/* Build a list of active (not always running) resources */
+	/* LRMDにget_rscなどを行って、リソース状態を取得して、rsc_listのxmlに積み上げる */
 	build_active_RAs(rsc_list);
-
+	/* 生成したxml_stateのXMLにXML_CIB_TAG_STATUS("status")を追加する */
 	xml_result = create_cib_fragment(xml_state, XML_CIB_TAG_STATUS);
 	crm_log_xml_debug_3(xml_state, "Current state of the LRM");
 	free_xml(xml_state);	
@@ -1992,7 +2010,9 @@ do_lrm_event(long long action,
     CRM_CHECK(FALSE, return);
 }
 
-
+/*
+   LRMDからのOPメッセージ通知を処理する 
+*/
 gboolean
 process_lrm_event(lrm_op_t *op)
 {
@@ -2006,9 +2026,9 @@ process_lrm_event(lrm_op_t *op)
 	struct recurring_op_s *pending = NULL;
 	CRM_CHECK(op != NULL, return FALSE);
 	CRM_CHECK(op->rsc_id != NULL, return FALSE);
-
+	/* 受信したOPメッセージからキーを作成する */
 	op_key = generate_op_key(op->rsc_id, op->op_type, op->interval);
-	
+	/* OPメッセージの結果を判定する */	
 	switch(op->op_status) {
 		case LRM_OP_ERROR:
 		case LRM_OP_PENDING:
@@ -2103,6 +2123,9 @@ process_lrm_event(lrm_op_t *op)
 	/* If a shutdown was escalated while operations were pending, 
 	 * then the FSA will be stalled right now... allow it to continue
 	 */
+	/*
+	   fsa_sourceトリガーを叩いて、crmdにLRMDからの受信があったことを通知する
+	*/
 	mainloop_set_trigger(fsa_source);
 
 	crm_free(op_key);

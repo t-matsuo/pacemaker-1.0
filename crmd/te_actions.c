@@ -562,6 +562,7 @@ notify_crmd(crm_graph_t *graph)
 			}
 
 		    } else if(fsa_state == S_POLICY_ENGINE) {
+				/* fsa_actionにA_PE_INVOKEアクションを追加して、fsa_sourceトリガーを叩いてcrmdに通知する */
 			register_fsa_action(A_PE_INVOKE);
 		    }
 		    break;

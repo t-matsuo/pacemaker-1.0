@@ -189,12 +189,15 @@ stop_te_timer(crm_action_timer_t *timer)
 
 	return TRUE;
 }
-
+/*
+	te_graph_triggerが叩かれ場合のトリガー処理
+*/
 gboolean
 te_graph_trigger(gpointer user_data) 
 {
     enum transition_status graph_rc = -1;
     if(transition_graph == NULL) {
+		/* 実行グラフがない場合は処理しない */
 	crm_debug("Nothing to do");
 	return TRUE;
     }
@@ -210,6 +213,7 @@ te_graph_trigger(gpointer user_data)
 	case S_ILLEGAL:
 	case S_STOPPING:
 	case S_TERMINATE:
+		/* 状態が実行できる状態でなければ処理しない */
 	    return TRUE;
 	    break;
 	default:
@@ -245,10 +249,13 @@ te_graph_trigger(gpointer user_data)
 void
 trigger_graph_processing(const char *fn, int line) 
 {
+	/* transition_triggerトリガーを叩く */
 	mainloop_set_trigger(transition_trigger);
 	crm_debug_2("%s:%d - Triggered graph processing", fn, line);
 }
-
+/*
+	実行中のグラフをアボートする
+*/
 void
 abort_transition_graph(
 	int abort_priority, enum transition_action abort_action,

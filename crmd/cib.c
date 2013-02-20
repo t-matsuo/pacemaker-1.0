@@ -72,7 +72,9 @@ do_cib_updated(const char *event, xmlNode *msg)
 	mainloop_set_trigger(config_read);	    
     }
 }
-
+/*
+   revision_check_callback処理 
+*/
 static void
 revision_check_callback(xmlNode *msg, int call_id, int rc,
 			xmlNode *output, void *user_data)
@@ -82,6 +84,7 @@ revision_check_callback(xmlNode *msg, int call_id, int rc,
 	xmlNode *generation = NULL;
 	
 	if(rc != cib_ok) {
+		/* CIBからのコールバックがエラーの場合 */
 		fsa_data_t *msg_data = NULL;
 		register_fsa_error(C_FSA_INTERNAL, I_ERROR, NULL);
 		return;
@@ -91,11 +94,13 @@ revision_check_callback(xmlNode *msg, int call_id, int rc,
 	CRM_CHECK(safe_str_eq(crm_element_name(generation), XML_TAG_CIB), crm_log_xml_err(output, __FUNCTION__); return);
 	
 	crm_debug_3("Checking our feature revision is allowed: %s", CIB_FEATURE_SET);
-
+	/* CIBからの受信XMLからXML_ATTR_CRM_VERTION(crm_feature_set)を取り出す */
 	revision = crm_element_value(generation, XML_ATTR_CRM_VERSION);
+	/* 取り出した値と自プロセス内のCRM_FEATURE_SET("3.0.1")を比較する */
 	cmp = compare_version(revision, CRM_FEATURE_SET);
 	
 	if(cmp > 0) {
+		/* crm_feature_setがサポート外の場合はエラー処理する(CIBの内容が処理出来ないという意味になるかな?) */
 		crm_err("This build (%s) does not support the current"
 			" resource configuration", VERSION);
 		crm_err("We can support up to CRM feature set %s (current=%s)",
@@ -128,6 +133,7 @@ do_cib_replaced(const char *event, xmlNode *msg)
 }
 
 /*	 A_CIB_STOP, A_CIB_START, A_CIB_RESTART,	*/
+/* CIB制御処理 */
 void
 do_cib_control(long long action,
 	       enum crmd_fsa_cause cause,
@@ -163,21 +169,24 @@ do_cib_control(long long action,
 	}
 
 	if(action & start_actions) {
+		/* A_CIB_STARTの場合 */
 		int rc = cib_ok;
 		
 		CRM_ASSERT(fsa_cib_conn != NULL);
 		
 		if(cur_state == S_STOPPING) {
+			/* 現在がS_STOPPING状態なら処理を抜ける */
 			crm_err("Ignoring request to start %s after shutdown",
 				this_subsys->name);
 			return;
 		}
-
+		/* CIBにサインオンする */
 		rc = fsa_cib_conn->cmds->signon(
 			fsa_cib_conn, CRM_SYSTEM_CRMD, cib_command);
 
 		if(rc != cib_ok) {
 			/* a short wait that usually avoids stalling the FSA */
+			/* サインオンに失敗した場合は、１秒待ってリトライ */
 			sleep(1); 
 			rc = fsa_cib_conn->cmds->signon(
 				fsa_cib_conn, CRM_SYSTEM_CRMD, cib_command);
@@ -200,12 +209,15 @@ do_cib_control(long long action,
 		    crm_err("Could not set CIB notification callback");
 			
 		} else {
+			/* サインオンに成功した場合は、ビットセット */
 			set_bit_inplace(
 				fsa_input_register, R_CIB_CONNECTED);
 		}
 		
 		if(is_set(fsa_input_register, R_CIB_CONNECTED) == FALSE) {
-			
+			/*
+				サインインできていない場合は、タイマー（トリガーも)を利用してサインインを行う
+			*/
 			cib_retries++;
 			crm_warn("Couldn't complete CIB registration %d"
 				 " times... pause and retry",
@@ -223,13 +235,16 @@ do_cib_control(long long action,
 					C_FSA_INTERNAL, I_ERROR, NULL);
 			}
 		} else {
+			/*
+				サインインできた場合
+			*/
 			int call_id = 0;
 			
 			crm_info("CIB connection established");
-			
+			/* CIBにクエリーを実行する */
 			call_id = fsa_cib_conn->cmds->query(
 				fsa_cib_conn, NULL, NULL, cib_scope_local);
-			
+			/* クエリーのコールバックをセットする */
 			add_cib_op_callback(fsa_cib_conn, call_id, FALSE, NULL,
 					    revision_check_callback);
 			cib_retries = 0;

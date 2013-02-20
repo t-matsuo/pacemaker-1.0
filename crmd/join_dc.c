@@ -68,7 +68,7 @@ initialize_join(gboolean before)
 		clear_bit_inplace(fsa_input_register, R_HAVE_CIB);
 		clear_bit_inplace(fsa_input_register, R_CIB_ASKED);
 	}
-	
+	/* 各種ハッシュテーブルを作成する */
 	welcomed_nodes = g_hash_table_new_full(
 		g_str_hash, g_str_equal,
 		g_hash_destroy_str, g_hash_destroy_str);
@@ -82,7 +82,9 @@ initialize_join(gboolean before)
 		g_str_hash, g_str_equal,
 		g_hash_destroy_str, g_hash_destroy_str);
 }
-
+/*
+	各種ハッシュテーブルから対象ノード情報を削除する
+*/
 void
 erase_node_from_join(const char *uname) 
 {
@@ -128,7 +130,7 @@ join_make_offer(gpointer key, gpointer value, gpointer user_data)
 		crm_err("No recipient for welcome message");
 		return;
 	}
-
+	/* 	各種ハッシュテーブルから対象ノード情報を削除する */
 	erase_node_from_join(join_to);
 
 	if(saved_ccm_membership_id != crm_peer_seq) {
@@ -138,6 +140,7 @@ join_make_offer(gpointer key, gpointer value, gpointer user_data)
 	}	
 	
 	if(member->processes & crm_proc_crmd) {
+		/* CRM_OP_JOIN_OFFERメッセージを生成する */
 		xmlNode *offer = create_request(
 			CRM_OP_JOIN_OFFER, NULL, join_to,
 			CRM_SYSTEM_CRMD, CRM_SYSTEM_DC, NULL);
@@ -147,10 +150,10 @@ join_make_offer(gpointer key, gpointer value, gpointer user_data)
 		/* send the welcome */
 		crm_debug("join-%d: Sending offer to %s",
 			  current_join_id, join_to);
-
+		/* 対象ノードにCRM_OP_JOIN_OFFERメッセージを送信する */
 		send_cluster_message(join_to, crm_msg_crmd, offer, TRUE);
 		free_xml(offer);
-
+		/* welcomed_nodesハッシュテーブルに対象ノードを保存 */
 		g_hash_table_insert(
 			welcomed_nodes, crm_strdup(join_to), join_offered);
 	} else {
@@ -162,6 +165,9 @@ join_make_offer(gpointer key, gpointer value, gpointer user_data)
 }
 
 /*	 A_DC_JOIN_OFFER_ALL	*/
+/* A_DC_JOIN_OFFER_ALLアクション処理 */
+/* 現在のDC情報をクリアして 																						*/
+/* CRM_OP_JOIN_OFFERメッセージをcrm_peer_cacheキャッシュに認識されているクラスターメンバーのcrmdプロセスに送信する */
 void
 do_dc_join_offer_all(long long action,
 		     enum crmd_fsa_cause cause,
@@ -177,14 +183,17 @@ do_dc_join_offer_all(long long action,
 	current_join_id++;
 	initialize_join(TRUE);
 /* 	do_update_cib_nodes(TRUE, __FUNCTION__); */
-
+	/* 現在のDCをクリア */
 	update_dc(NULL);
 	if(cause == C_HA_MESSAGE && current_input == I_NODE_JOIN) {
 	    crm_info("A new node joined the cluster");
 	}
+	/* crm_peer_cacheキャッシュに認識されているクラスターメンバーのcrmdプロセス */
+	/* にCRM_OP_JOIN_OFFERメッセージを送信する */
 	g_hash_table_foreach(crm_peer_cache, join_make_offer, NULL);
 	
 	/* dont waste time by invoking the PE yet; */
+	/* CRM_OP_JOIN_OFFERメッセージを送信後、welcomed_nodesハッシュテーブルのメンバー数をログで出力 */
 	crm_info("join-%d: Waiting on %d outstanding join acks",
 		 current_join_id, g_hash_table_size(welcomed_nodes));
 }
@@ -283,6 +292,9 @@ compare_int_fields(xmlNode *left, xmlNode *right, const char *field)
 }
 
 /*	 A_DC_JOIN_PROCESS_REQ	*/
+/*
+	A_DC_JOIN_PROCESS_REQアクション処理(CRM_OP_JOIN_REQUESTをDCノードが受信した時の処理)
+*/
 void
 do_dc_join_filter_offer(long long action,
 	       enum crmd_fsa_cause cause,
@@ -324,6 +336,7 @@ do_dc_join_filter_offer(long long action,
 	if(join_id != current_join_id) {
 		crm_debug("Invalid response from %s: join-%d vs. join-%d",
 			  join_from, join_id, current_join_id);
+		/* JOIN状態チェックを行う */
 		check_join_state(cur_state, __FUNCTION__);
 		return;
 		
@@ -367,14 +380,15 @@ do_dc_join_filter_offer(long long action,
 	}
 	
 	/* add them to our list of CRMD_STATE_ACTIVE nodes */
+	/* integrated_nodesハッシュテーブルにCRM_OP_JOIN_REQUESTを送信して来たノードを追加する */
 	g_hash_table_insert(
 		integrated_nodes, crm_strdup(join_from), crm_strdup(ack_nack));
-
+	/* integrated_nodesハッシュテーブルサイズと、CRM_OP_JOIN_REQUESTを送信して来たノードjoin_idをログ出力する */
 	crm_debug("%u nodes have been integrated into join-%d",
 		    g_hash_table_size(integrated_nodes), join_id);
-	
+	/* welcomed_nodesハッシュテーブルからCRM_OP_JOIN_REQUESTを送信して来たノードを削除する */
 	g_hash_table_remove(welcomed_nodes, join_from);
-
+	/* JOIN状態チェックを行う */
 	if(check_join_state(cur_state, __FUNCTION__) == FALSE) {
 		/* dont waste time by invoking the PE yet; */
 		crm_debug("join-%d: Still waiting on %d outstanding offers",
@@ -384,6 +398,9 @@ do_dc_join_filter_offer(long long action,
 
 
 /*	A_DC_JOIN_FINALIZE	*/
+/*
+	welcomed_nodesハッシュテーブルのサイズが０(すべての認識済みのノードからCRM_OP_JOIN_REQUESTを受信した)の場合
+*/
 void
 do_dc_join_finalize(long long action,
 		    enum crmd_fsa_cause cause,
@@ -400,6 +417,9 @@ do_dc_join_finalize(long long action,
 	crm_debug("Finializing join-%d for %d clients",
 		  current_join_id, g_hash_table_size(integrated_nodes));
 	if(g_hash_table_size(integrated_nodes) == 0) {
+		/* integrated_nodesハッシュテーブルにまだ、welcom_nodesハッシュテーブルからデータが１つも移送されていない場合 */
+		/* は、I_ELECTION_DCへ戻る */
+		/* 認識済みのメンバーから、どのノードからもCRM_OP_JOIN_REQUESTを受信し終わっていない状態ということになる */
 	    /* If we don't even have ourself, start again */
 	    register_fsa_error_adv(
 		C_FSA_INTERNAL, I_ELECTION_DC, NULL, NULL, __FUNCTION__);
@@ -432,15 +452,19 @@ do_dc_join_finalize(long long action,
 
 	crm_info("join-%d: Syncing the CIB from %s to the rest of the cluster",
 		 current_join_id, sync_from);
-	
+	/* CIBにsync_from処理を実行する */
 	rc = fsa_cib_conn->cmds->sync_from(
 	    fsa_cib_conn, sync_from, NULL,cib_quorum_override);
-
+	/* sync_from処理のコールバックをセットする */
+	/* 		コールバック内からCRM_OP_JOIN_ACKNAKメッセージを送信する	*/
 	fsa_cib_conn->cmds->register_callback(
 		    fsa_cib_conn, rc, 60, FALSE, sync_from,
 		    "finalize_sync_callback", finalize_sync_callback);
 }
-
+/*
+	CIBへのsync_from処理のコールバック処理
+		CRM_OP_JOIN_ACKNAKメッセージを送信する
+*/
 void
 finalize_sync_callback(xmlNode *msg, int call_id, int rc,
 		       xmlNode *output, void *user_data) 
@@ -453,17 +477,25 @@ finalize_sync_callback(xmlNode *msg, int call_id, int rc,
 			      (char*)user_data, cib_error2string(rc));
 
 		/* restart the whole join process */
+		/* コールバックがcib_okではない場合は、I_ELECTION_DCに戻る */
 		register_fsa_error_adv(
 			C_FSA_INTERNAL, I_ELECTION_DC,NULL,NULL,__FUNCTION__);
 
 	} else if(AM_I_DC && fsa_state == S_FINALIZE_JOIN) {
+		/* 自ノードがDCノードで、fsa_stateがS_FINALIZE_JOINの場合 */
 	    set_bit_inplace(fsa_input_register, R_HAVE_CIB);
 	    clear_bit_inplace(fsa_input_register, R_CIB_ASKED);
 	    
 	    /* make sure dc_uuid is re-set to us */
+	    /* JOIN状態チェック処理 */
 	    if(check_join_state(fsa_state, __FUNCTION__) == FALSE) {
 		crm_debug("Notifying %d clients of join-%d results",
 			  g_hash_table_size(integrated_nodes), current_join_id);
+			/*
+				ノードをCIBのnodeエントリに追加して、CRM_OP_JOIN_ACKNAKメッセージを送信する
+				また、クラスタメンバーとして認識したノードは、finalized_nodesハッシュテーブルに追加する	
+				そして、integrated_nodesハッシュテーブルから削除する
+			*/
 		g_hash_table_foreach_remove(
 		    integrated_nodes, finalize_join_for, NULL);
 	    }
@@ -494,6 +526,9 @@ join_update_complete_callback(xmlNode *msg, int call_id, int rc,
 }
 
 /*	A_DC_JOIN_PROCESS_ACK	*/
+/*
+	CRM_OP_JOIN_ACKNACKを送信後、ノードからCRM_OP_JOIN_CONFIRMメッセージが送られて来たときの処理
+*/
 void
 do_dc_join_ack(long long action,
 	       enum crmd_fsa_cause cause,
@@ -511,6 +546,7 @@ do_dc_join_ack(long long action,
 	const char *join_from  = crm_element_value(join_ack->msg, F_CRM_HOST_FROM);
 
 	if(safe_str_neq(op, CRM_OP_JOIN_CONFIRM)) {
+		/* CRM_OP_JOIN_CONFIRMメッセージ以外のメッセージは無視してログを出力 */
 		crm_debug("Ignoring op=%s message from %s", op, join_from);
 		return;
 	} 
@@ -521,37 +557,41 @@ do_dc_join_ack(long long action,
 	/* now update them to "member" */
 	
 	crm_debug_2("Processing ack from %s", join_from);
-
+	/* CRM_OP_JOIN_CONFIRMを送ってきたノードがfinalized_nodesハッシュテーブルに含まれるかサーチする */
 	join_state = (const char *)
 		g_hash_table_lookup(finalized_nodes, join_from);
 	
 	if(join_state == NULL) {
+		/* 含まれていない場合は、無視 */
 		crm_err("Join not in progress: ignoring join-%d from %s",
 			join_id, join_from);
 		return;
 		
 	} else if(safe_str_neq(join_state, CRMD_JOINSTATE_MEMBER)) {
+		/* 含まれていて、CRMD_JOINSTATE_MEMBER状態の場合は、finalized_nodesハッシュテーブルからCRM_OP_JOIN_CONFIRMを送ってきたノードを削除 */
 		crm_err("Node %s wasnt invited to join the cluster",join_from);
 		g_hash_table_remove(finalized_nodes, join_from);
 		return;
 		
 	} else if(join_id != current_join_id) {
+		/* JOIN_IDが異なる場合も、finalized_nodesハッシュテーブルからCRM_OP_JOIN_CONFIRMを送ってきたノードを削除 */
 		crm_err("Invalid response from %s: join-%d vs. join-%d",
 			join_from, join_id, current_join_id);
 		g_hash_table_remove(finalized_nodes, join_from);
 		return;
 	}
-
+	/* 上記以外の場合も、finalized_nodesハッシュテーブルからCRM_OP_JOIN_CONFIRMを送ってきたノードを削除 */
 	g_hash_table_remove(finalized_nodes, join_from);
 	
 	if(g_hash_table_lookup(confirmed_nodes, join_from) != NULL) {
+		/* 既に登録済みの場合は、エラーメッセージを表示 */
 		crm_err("join-%d: hash already contains confirmation from %s",
 			join_id, join_from);
 	}
-	
+	/* confirmed_nodesハッシュテーブルにCRM_OP_JOIN_CONFIRMを送ってきたノードを追加 */
 	g_hash_table_insert(
 		confirmed_nodes, crm_strdup(join_from), crm_strdup(join_id_s));
-
+	/* join完了ログを出す */
  	crm_info("join-%d: Updating node state to %s for %s",
  		 join_id, CRMD_JOINSTATE_MEMBER, join_from);
 
@@ -559,15 +599,23 @@ do_dc_join_ack(long long action,
 	 * We dont need to notify the TE of these updates, a transition will
 	 *   be started in due time
 	 */
+	/* CIBからCRM_OP_JOIN_CONFIRMを送ってきたノードのXML_CIB_TAG_LRM情報を消去 */
 	erase_status_tag(join_from, XML_CIB_TAG_LRM, cib_scope_local);
+	/* CIBを更新 */
+	/* CRM_OP_JOIN_CONFIRMを送ってきたノードのXML_CIB_TAG_LRM情報も追加される */
+	/* クラスタ構成ノードのLRMD情報が最新で更新 */
 	fsa_cib_update(XML_CIB_TAG_STATUS, join_ack->xml,
 		       cib_scope_local|cib_quorum_override|cib_can_create, call_id);
+	/* CIBの更新コールバックをセット */
 	add_cib_op_callback(
 		fsa_cib_conn, call_id, FALSE, NULL, join_update_complete_callback);
  	crm_debug("join-%d: Registered callback for LRM update %d",
 		  join_id, call_id);
 }
-
+/*
+	ノードをCIBのnodeエントリに追加して、CRM_OP_JOIN_ACKNAKメッセージを送信する
+	また、クラスタメンバーとして認識したノードは、finalized_nodesハッシュテーブルに追加する
+*/
 gboolean
 finalize_join_for(gpointer key, gpointer value, gpointer user_data)
 {
@@ -584,6 +632,7 @@ finalize_join_for(gpointer key, gpointer value, gpointer user_data)
 	join_state = (const char *)value;
 
 	/* make sure the node exists in the config section */
+	/* CIBに対象ノードのnodeエントリを生成する */
 	create_node_entry(join_to, join_to, NORMALNODE);
 
 	join_node = crm_get_peer(0, join_to);
@@ -601,6 +650,7 @@ finalize_join_for(gpointer key, gpointer value, gpointer user_data)
 	}
 	
 	/* send the ack/nack to the node */
+	/* CRM_OP_JOIN_ACKNAKメッセージを生成する */
 	acknak = create_request(
 		CRM_OP_JOIN_ACKNAK, NULL, join_to,
 		CRM_SYSTEM_CRMD, CRM_SYSTEM_DC, NULL);
@@ -608,26 +658,32 @@ finalize_join_for(gpointer key, gpointer value, gpointer user_data)
 	
 	/* set the ack/nack */
 	if(safe_str_eq(join_state, CRMD_JOINSTATE_MEMBER)) {
+		/* 対象ノードの状態がCRMD_JOINSTATE_MEMBERの場合は、CRM_OP_JOIN_ACKNAKにXML_BOOLEAN_TRUEをセットする */
 		crm_debug("join-%d: ACK'ing join request from %s, state %s",
 			  current_join_id, join_to, join_state);
 		crm_xml_add(acknak, CRM_OP_JOIN_ACKNAK, XML_BOOLEAN_TRUE);
+		/* finalized_nodesハッシュテーブルにXML_BOOLEAN_TRUEを送信するノードをセットする */
 		g_hash_table_insert(
 			finalized_nodes,
 			crm_strdup(join_to), crm_strdup(CRMD_JOINSTATE_MEMBER));
 	} else {
+		/* その他の状態の場合は、CRM_OP_JOIN_ACKNAKにXML_BOOLEAN_FALSEをセットする */
 		crm_warn("join-%d: NACK'ing join request from %s, state %s",
 			 current_join_id, join_to, join_state);
 		
 		crm_xml_add(acknak, CRM_OP_JOIN_ACKNAK, XML_BOOLEAN_FALSE);
 	}
-	
+	/* セットしたCRM_OP_JOIN_ACKNAKメッセージを送信する */
 	send_cluster_message(join_to, crm_msg_crmd, acknak, TRUE);
+	/* 生成したメッセージを破棄する */
 	free_xml(acknak);
 	return TRUE;
 }
 
 void ghash_print_node(gpointer key, gpointer value, gpointer user_data);
-
+/* 
+	JOIN状態チェック処理
+*/
 gboolean
 check_join_state(enum crmd_fsa_state cur_state, const char *source)
 {
@@ -641,16 +697,20 @@ check_join_state(enum crmd_fsa_state cur_state, const char *source)
 		register_fsa_input_before(C_FSA_INTERNAL, I_NODE_JOIN, NULL);
 		
 	} else if(cur_state == S_INTEGRATION) {
+		/* 現在のstateがS_INTEGRATIONの時 */
 		if(g_hash_table_size(welcomed_nodes) == 0) {
+			/* welcomed_nodesハッシュテーブルのサイズが０(すべての認識済みのノードからCRM_OP_JOIN_REQUESTを受信した)の場合 */
 			crm_debug("join-%d: Integration of %d peers complete: %s",
 				  current_join_id,
 				  g_hash_table_size(integrated_nodes), source);
+			/* I_INTEGRATEDへ */
 			register_fsa_input_before(
 				C_FSA_INTERNAL, I_INTEGRATED, NULL);
 			return TRUE;
 		}
 
 	} else if(cur_state == S_FINALIZE_JOIN) {
+		/* 現在のstateがS_FINALIZE_JOINの時 */
 		if(is_set(fsa_input_register, R_HAVE_CIB) == FALSE) {
 			crm_debug("join-%d: Delaying I_FINALIZED until we have the CIB",
 				  current_join_id);
@@ -660,6 +720,7 @@ check_join_state(enum crmd_fsa_state cur_state, const char *source)
 			  && g_hash_table_size(finalized_nodes) == 0) {
 			crm_debug("join-%d complete: %s",
 				  current_join_id, source);
+			/* I_FINALIZEDへ */
 			register_fsa_input_later(C_FSA_INTERNAL, I_FINALIZED, NULL);
 			
 		} else if(g_hash_table_size(integrated_nodes) != 0
