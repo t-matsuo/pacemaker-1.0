@@ -145,7 +145,7 @@ struct node_s {
 #define pe_rsc_unique		0x00000020ULL
 
 #define pe_rsc_provisional	0x00000100ULL
-#define pe_rsc_allocating	0x00000200ULL
+#define pe_rsc_allocating	0x00000200ULL		/* color処理実行中かどうかのフラグ */
 #define pe_rsc_merging		0x00000400ULL
 
 #define pe_rsc_try_reload	0x00001000ULL

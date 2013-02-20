@@ -401,7 +401,7 @@ color_instance(resource_t *rsc, pe_working_set_t *data_set)
 		return rsc->fns->location(rsc, NULL, FALSE);
 
 	} else if(is_set(rsc->flags, pe_rsc_allocating)) {
-		/* pe_rsc_allocatingがセットされているリソースも処理しない */
+		/* pe_rsc_allocatingがセット(color処理中)されているリソースも処理しない */
 		crm_debug("Dependency loop detected involving %s", rsc->id);
 		return NULL;
 	}
@@ -477,7 +477,7 @@ clone_color(resource_t *rsc, pe_working_set_t *data_set)
 		return NULL;
 
 	} else if(is_set(rsc->flags, pe_rsc_allocating)) {
-		/* pe_rsc_allocatingがセットされているリソースも処理しない */
+		/* pe_rsc_allocatingがセット(color処理中)されているリソースも処理しない */
 		crm_debug("Dependency loop detected involving %s", rsc->id);
 		return NULL;
 	}

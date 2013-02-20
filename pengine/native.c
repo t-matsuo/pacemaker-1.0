@@ -322,7 +322,7 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
         int alloc_details = scores_log_level+1;
 	const char *class = crm_element_value(rsc->xml, XML_AGENT_ATTR_CLASS);
 	if(rsc->parent && is_not_set(rsc->parent->flags, pe_rsc_allocating)) {
-		/* 親リソースが存在しているに、親リソースのpe_rsc_allocatingフラグがセットされていない場合は、*/
+		/* 親リソースが存在しているに、親リソースのpe_rsc_allocatingフラグ(color処理中)がセットされていない場合は、*/
 		/* 親リソースのcolorから処理しなおす */
 		/* never allocate children on their own */
 		crm_debug("Escalating allocation of %s to its parent: %s",
@@ -337,15 +337,14 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 	}
 
 	if(is_set(rsc->flags, pe_rsc_allocating)) {
-		/* pe_rsc_allocatingがセットされているリソースも処理しない */
+		/* pe_rsc_allocatingがセット(color処理中)されているリソースも処理しない */
 		crm_debug("Dependency loop detected involving %s", rsc->id);
 		return NULL;
 	}
-
+	/* pe_rsc_allocatingフラグをセット */
 	set_bit(rsc->flags, pe_rsc_allocating);
 	print_resource(alloc_details, "Allocating: ", rsc, FALSE);
 	dump_node_scores(alloc_details, rsc, "Pre-allloc", rsc->allowed_nodes);
-	/* pe_rsc_allocatingフラグをセット */
 	/************************* このリソースに対するcolocationタグのrsc指定を処理する ***********************/
 	/* このリソース情報のrsc_consリスト(このリソースに対するcolocation情報のrsc指定)をすべて処理する */
 	/* ※ただし、groupリソース配下のprimitiveリソースの場合、rsc_consリストには、groupリソースのrsc_consリスト(このリソースに対するcolocation情報) */
@@ -479,7 +478,7 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 		crm_debug("Pre-Allocated resource %s to %s",
 			  rsc->id, rsc->allocated_to->details->uname);
 	}
-	/* pe_rsc_allocatingフラグをクリアして、再帰呼び出しループでcolorさせない */
+	/* pe_rsc_allocatingフラグをクリア */
 	clear_bit(rsc->flags, pe_rsc_allocating);
 	print_resource(LOG_DEBUG_3, "Allocated ", rsc, TRUE);
 	/* 起動ノード情報を返す */

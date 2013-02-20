@@ -435,7 +435,9 @@ master_score(resource_t *rsc, node_t *node, int not_set_value)
 }
 
 #define max(a, b) a<b?b:a
-
+/*
+	子リソースの配置可能ノードのスコアとpriorityを設定する
+*/
 static void
 apply_master_prefs(resource_t *rsc) 
 {
@@ -444,14 +446,16 @@ apply_master_prefs(resource_t *rsc)
     get_clone_variant_data(clone_data, rsc);
     
     if(clone_data->applied_master_prefs) {
+		/* apply_master_prefs()が処理済みの場合は処理しない */
 	/* Make sure we only do this once */
 	return;
     }
     
     clone_data->applied_master_prefs = TRUE;
-    
+    /* masterリソースの全ての子リソースを処理する */
     slist_iter(
 	child_rsc, resource_t, rsc->children, lpc,
+		/* 子リソースの全ての配置可能ノード情報を処理する */
 	slist_iter(
 	    node, node_t, child_rsc->allowed_nodes, lpc,
 
@@ -460,19 +464,22 @@ apply_master_prefs(resource_t *rsc)
 		 *  so don't apply the master score as that may
 		 *  lead to clone shuffling
 		 */
+		 /* 対象配置可能ノードにリソースが配置不可の場合は処理しない */
 		continue;
 	    }
-	    
+	    /* 加算するmasterスコアを計算する */
 	    score = master_score(child_rsc, node, 0);
 	    if(score > 0) {
+			/* スコアが0以上の場合は、対象配置可能ノードにスコア加算した場合のweightを試算する */
 		new_score = merge_weights(node->weight, score);
 		if(new_score != node->weight) {
+			/* 試算結果から加算したweightに、変化がある場合は、weightにセットする */
 		    crm_debug_2("\t%s: Updating preference for %s (%d->%d)",
 				child_rsc->id, node->details->uname, node->weight, new_score);
 		    node->weight = new_score;
 		}
 	    }
-	    
+	    /* 子リソースのpriorityをセットする */
 	    new_score = max(child_rsc->priority, score);
 	    if(new_score != child_rsc->priority) {
 		crm_debug_2("\t%s: Updating priority (%d->%d)",
@@ -539,15 +546,15 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 	return NULL;
 
     } else if(is_set(rsc->flags, pe_rsc_allocating)) {
+		/* pe_rsc_allocatingフラグがセット(color処理中)の場合は処理しない */
 	crm_debug("Dependency loop detected involving %s", rsc->id);
-	/* 既に配置処理済みの場合は処理しない */
 	return NULL;
     }
-
+	/* 子リソースの配置可能ノードのスコアとpriorityを設定する */
 	apply_master_prefs(rsc);
 	/* クローンのcolor処理を実行する */
 	clone_color(rsc, data_set);
-	/* 配置処理フラグをセットする */
+	/* 配置(color)処理フラグをセットする */
     set_bit(rsc->flags, pe_rsc_allocating);
 
 	/* count now tracks the number of masters allocated */
@@ -559,6 +566,7 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 	/*
 	 * assign priority
 	 */
+	/* 子リソースを全て処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
 

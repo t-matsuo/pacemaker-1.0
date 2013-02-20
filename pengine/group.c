@@ -27,33 +27,41 @@
 
 #define VARIANT_GROUP 1
 #include <lib/pengine/variant.h>
-
+/*
+  groupリソース color処理
+*/
 node_t *
 group_color(resource_t *rsc, pe_working_set_t *data_set)
 {
 	node_t *node = NULL;
 	node_t *group_node = NULL;
 	group_variant_data_t *group_data = NULL;
+	/* group固有データを取り出す */
 	get_group_variant_data(group_data, rsc);
 
 	if(is_not_set(rsc->flags, pe_rsc_provisional)) {
+		/* pe_rsc_provisionalがセットされていない場合は、このgroupリソースの配置先ノード情報を返す */
 		return rsc->allocated_to;
 	}
 	crm_debug_2("Processing %s", rsc->id);
 	if(is_set(rsc->flags, pe_rsc_allocating)) {
+		/* pe_rsc_allocatingフラグがセット(color処理中)されている場合は、何もしない */
 		crm_debug("Dependency loop detected involving %s", rsc->id);
 		return NULL;
 	}
 	
 	if(group_data->first_child == NULL) {
 	    /* nothign to allocate */
+	    /* このgroupリソースに子リソースが存在しないは、pe_rsc_provisionalをクリアしてこれ以上処理させない */
 	    clear_bit(rsc->flags, pe_rsc_provisional);
 	    return NULL;
 	}
-	
+	/* pe_rsc_allocatingフラグをセット(color処理中) */
 	set_bit(rsc->flags, pe_rsc_allocating);
+	/* このgroupリソースのroleに最初の子リソースのroleをセット */
 	rsc->role = group_data->first_child->role;
-	
+	/* 最初の子リソースのcolocation情報(with,with-rsc)にこのgroupリソースの持っているcolocation情報を追加する */
+	/* そしてこのgroupリソース自体のcolocation情報は削除する */
 	group_data->first_child->rsc_cons = g_list_concat(
 		group_data->first_child->rsc_cons, rsc->rsc_cons);
 	rsc->rsc_cons = NULL;
@@ -61,30 +69,34 @@ group_color(resource_t *rsc, pe_working_set_t *data_set)
 	group_data->first_child->rsc_cons_lhs = g_list_concat(
 		group_data->first_child->rsc_cons_lhs, rsc->rsc_cons_lhs);
 	rsc->rsc_cons_lhs = NULL;
-	
+	/* color処理時点の配置可能ノード情報のスコアをダンプする */
 	dump_node_scores(show_scores?0:scores_log_level, rsc, __PRETTY_FUNCTION__, rsc->allowed_nodes);
-	
+	/* このgroupリソースの全ての子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
-
+		/* 子リソースのcolorを処理する */
 		node = child_rsc->cmds->color(child_rsc, data_set);
 		if(group_node == NULL) {
 		    group_node = node;
 		}
 		);
-
+	/* 子リソースのcolor処理後、最初の子リソースの次の遷移roleをこのgroupリソースの遷移roleにセットする */
 	rsc->next_role = group_data->first_child->next_role;	
+	/* pe_rsc_allocating,pe_rsc_provisionalフラグをクリア */
 	clear_bit(rsc->flags, pe_rsc_allocating);
 	clear_bit(rsc->flags, pe_rsc_provisional);
 
 	if(group_data->colocated) {
+		/* このgroupリソースのcolocatedがTRUEの場合は、最初に見つかった子リソースの配置先ノードを返す */
 		return group_node;
 	} 
 	return NULL;
 }
 
 void group_update_pseudo_status(resource_t *parent, resource_t *child);
-
+/*
+	groupリソースのアクション生成
+*/
 void group_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 {
 	action_t *op = NULL;
@@ -93,7 +105,7 @@ void group_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 	get_group_variant_data(group_data, rsc);
 
 	crm_debug_2("Creating actions for %s", rsc->id);
-	
+	/* このgroupリソースの全ての子リソースのアクション生成処理を実行する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
 		child_rsc->cmds->create_actions(child_rsc, data_set);
@@ -169,7 +181,9 @@ group_update_pseudo_status(resource_t *parent, resource_t *child)
 		
 		);
 }
-
+/*
+	groupリソースの内部制約処理
+*/
 void group_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 {
 	const char *value = NULL;
@@ -299,7 +313,9 @@ void group_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 	}
 }
 
-
+/*
+	groupリソースのcolocationのrsc指定時処理
+*/
 void group_rsc_colocation_lh(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
 {
@@ -336,6 +352,9 @@ void group_rsc_colocation_lh(
 			child_rsc, rsc_rh, constraint); 
 		);
 }
+/*
+	groupリソースのcolocationのwith-rsc指定時処理
+*/
 
 void group_rsc_colocation_rh(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
