@@ -854,7 +854,10 @@ static void node_list_update_one(GListPtr list, node_t *other, const char *attr,
 	       }
 	);
 }
-
+/*
+ colocation制約のwith-rsc指定側を処理する  
+ ---- リソースがcolocationでwith-rsc指定されている場合の ---
+*/
 void master_rsc_colocation_rh(
     resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
 {
@@ -907,6 +910,7 @@ void master_rsc_colocation_rh(
 		if(constraint->role_lh != RSC_ROLE_MASTER
 		   || constraint->role_rh != RSC_ROLE_MASTER) {
 		    if(constraint->score >= INFINITY) {
+				/* rsc指定側の配置可能ノード情報を更新する */
 			rsc_lh->allowed_nodes = node_list_exclude(rsc_lh->allowed_nodes, rhs, TRUE);
 		    }
 		}

@@ -194,7 +194,7 @@ int node_list_attr_score(GListPtr list, const char *attr, const char *value)
     return best_score;
 }
 
-/* list1のノード情報リストに、list2のノード情報リストのノードマッチングしたweightをマージする処理 */
+/* 更新対象(list1)のノード情報リストに、マッチング対象(list2)のノード情報リストのノードマッチングしたweightをマージする処理 */
 static void
 node_list_update(GListPtr list1, GListPtr list2, const char *attr, int factor, gboolean only_positive)
 {
@@ -204,12 +204,12 @@ node_list_update(GListPtr list1, GListPtr list2, const char *attr, int factor, g
 		/* attrがNULLの場合は、"#uname"をセットする */
 	attr = "#"XML_ATTR_UNAME;
     }
-    /* list1のすべてのノード情報を処理する */
+    /* 更新対象(list1)のすべてのノード情報を処理する */
     slist_iter(
 	node, node_t, list1, lpc,
 	
 	CRM_CHECK(node != NULL, continue);
-		/* list2のノード情報リストからlist1のノードに一致したスコアを取り出す（取り出せない場合は、-INFININITYもある) */
+		/* マッチング対象(list2)のノード情報リストからlist1のノードに一致したスコアを取り出す（取り出せない場合は、-INFININITYもある) */
 	score = node_list_attr_score(list2, attr, g_hash_table_lookup(node->details->attrs, attr));
 	new_score = merge_weights(factor*score, node->weight);
 	
@@ -242,7 +242,7 @@ node_list_update(GListPtr list1, GListPtr list2, const char *attr, int factor, g
 	} else {
 	    crm_debug_2("%s: %d + %d*%d",
 		      node->details->uname, node->weight, factor, score);
-		/* list1のノード情報のweightにnew_scoreをセットする	*/
+		/* 更新対象(list1)のノード情報のweightにnew_scoreをセットする	*/
 	    node->weight = new_score;
 	}
 	);
@@ -361,7 +361,7 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 			    constraint->score, role2text(constraint->role_lh));
 		if(constraint->role_lh >= RSC_ROLE_MASTER
 		   || (constraint->score < 0 && constraint->score > -INFINITY)) {
-			/* colocation情報のrole_lh(with-rsc-role)がRSC_ROLE_MASTER以上で、*/
+			/* colocation情報のrole_lh(with-rscのrole)がRSC_ROLE_MASTER以上で、*/
 			/* scoreがマイナス値で-INFINTYでない場合 */
 			/* weightをリセットしないで、このリソース情報のallowed_nodesリストの全ての複製を取得する */
 			/* マイナスのweightも含む */
@@ -376,7 +376,8 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 		/* ※with-rsc指定されたリソースの配置先が決定している場合には、このリソースのweightにcolocationのスコアを反映する */
 		rsc->cmds->rsc_colocation_lh(rsc, rsc_rh, constraint);	
 		if(archive && can_run_any(rsc->allowed_nodes) == FALSE) {
-			/* スコアがマイナス値で設定されていて（-INFINTY以外)、リソースの配置可能なノードがない場合 */
+			/* colocation情報のrole_lh(with-rscのrole)がRSC_ROLE_MASTER以上か、スコアがマイナス値で設定されていて（-INFINTY以外)、リソースの配置可能なノードがない場合 */
+			/* with-rsc指定側の反映をキャンセルする */
 		    crm_info("%s: Rolling back scores from %s", rsc->id, rsc_rh->id);
 		    pe_free_shallow_adv(rsc->allowed_nodes, TRUE);
 		    /* リソースのallowed_nodesリストにarchiveリストをセットする */

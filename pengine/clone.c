@@ -1085,7 +1085,10 @@ void clone_rsc_colocation_lh(
 
 	return;
 }
-/* colocationのwith-rsc指定リソース側の処理 */
+/*
+ colocation制約のwith-rsc指定側を処理する  
+ ---- リソースがcolocationでwith-rsc指定されている場合の ---
+*/
 void clone_rsc_colocation_rh(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
 {
