@@ -932,7 +932,7 @@ child_stopping_constraints(
 	}
 }
 
-/* cloneリソースの内部制約を処理する */
+/* cloneリソースの内部制約を追加する */
 void
 clone_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 {

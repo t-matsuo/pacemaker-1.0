@@ -905,6 +905,7 @@ stage2(pe_working_set_t *data_set)
 /*
  * Create internal resource constraints before allocation
  */
+/* 内部的な制約の生成 */
 gboolean
 stage3(pe_working_set_t *data_set)
 {

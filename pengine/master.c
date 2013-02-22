@@ -785,7 +785,7 @@ void master_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 		child_rsc->priority = rsc->priority;
 	    );
 }
-
+/* masterリソースの内部制約を追加する */
 void
 master_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 {

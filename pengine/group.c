@@ -181,9 +181,7 @@ group_update_pseudo_status(resource_t *parent, resource_t *child)
 		
 		);
 }
-/*
-	groupリソースの内部制約処理
-*/
+/* groupリソースの内部制約を追加する */
 void group_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 {
 	const char *value = NULL;
@@ -192,12 +190,12 @@ void group_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 	resource_t *last_active = NULL;
 	group_variant_data_t *group_data = NULL;
 	get_group_variant_data(group_data, rsc);
-
+	/* groupリソース自体のnativeな内部制約を追加する */
 	native_internal_constraints(rsc, data_set);
 
 	value = g_hash_table_lookup(rsc->meta, "stateful");
 	stateful = crm_is_true(value);
-	
+	/* STOPPED->START, STOP->STOPPPED, START->STARTEDのorderを追加する */
 	new_rsc_order(rsc, RSC_STOPPED, rsc, RSC_START,
 		      pe_order_optional, data_set);
 
@@ -206,14 +204,14 @@ void group_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 
 	new_rsc_order(rsc, RSC_START, rsc, RSC_STARTED,
 		      pe_order_runnable_left, data_set);
-	
+	/* groupリソースの全ての子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
 		int stop = pe_order_shutdown|pe_order_implies_right;
 		int stopped = pe_order_implies_right_printed;
 		int start = pe_order_implies_right|pe_order_runnable_left;
 		int started = pe_order_runnable_left|pe_order_implies_right|pe_order_implies_right_printed;
-		
+		/* 子リソースの内部制約を追加する */
 		child_rsc->cmds->internal_constraints(child_rsc, data_set);
 
 		if(last_rsc == NULL) {
@@ -223,12 +221,15 @@ void group_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 		    }
 		    
 		} else if(group_data->colocated) {
+			/* colocatedがTRUEの場合、子リソース間のcolocationを追加する */
 			rsc_colocation_new(
 				"group:internal_colocation", NULL, INFINITY,
 				child_rsc, last_rsc, NULL, NULL, data_set);
 		}
 
 		if(stateful) {
+			/* statefulリソースの場合は、親groupリソースとのDEMOTE->DEMOTEのorder */
+			/* DEMOTE->DEMOTE, DEMOTE->DEMOTED, PROMOTE,PROMOTE,PROMOTE,PROMOTEのorderを追加する */
 		    new_rsc_order(rsc, RSC_DEMOTE, child_rsc, RSC_DEMOTE,
 				  stop|pe_order_implies_left_printed, data_set);
 
@@ -240,12 +241,12 @@ void group_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 				  pe_order_implies_left_printed, data_set);
 
 		}
-		
+		/* 親groupリソースと子リソースのstart,stopのorderを生成する */
 		order_start_start(rsc, child_rsc, pe_order_implies_left_printed);
 		order_stop_stop(rsc, child_rsc, stop|pe_order_implies_left_printed);
-		
+		/* 親groupリソースと子リソースのSTOP,STOPEDのorderを生成する */
 		new_rsc_order(child_rsc, RSC_STOP, rsc, RSC_STOPPED, stopped, data_set);
-
+		/* 親groupリソースと子リソースのSTART,STARTEDのorderを生成する */
 		new_rsc_order(child_rsc, RSC_START, rsc, RSC_STARTED, started, data_set);
 		
  		if(group_data->ordered == FALSE) {

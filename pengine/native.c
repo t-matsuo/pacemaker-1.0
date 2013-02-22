@@ -787,7 +787,7 @@ void native_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 		Recurring(rsc, start, chosen, data_set);
 	}
 }
-
+/* nativeリソースの内部制約を追加する */
 void native_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 {
 	int type = pe_order_optional;
@@ -801,7 +801,7 @@ void native_internal_constraints(resource_t *rsc, pe_working_set_t *data_set)
 	if(rsc->parent == NULL || rsc->parent->variant == pe_group) {
 		type |= pe_order_restart;
 	}
-	
+	/* STOP->START, DEMOTE->STOP, START->PROMOTE, DELETE->STARTの内部orderを追加する */
 	new_rsc_order(rsc, RSC_STOP,   rsc, RSC_START,   type, data_set);
 	new_rsc_order(rsc, RSC_DEMOTE, rsc, RSC_STOP,    pe_order_demote_stop, data_set);
 	new_rsc_order(rsc, RSC_START,  rsc, RSC_PROMOTE, pe_order_runnable_left, data_set);
