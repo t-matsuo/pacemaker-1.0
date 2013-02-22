@@ -288,7 +288,7 @@ rsc_merge_weights(resource_t *rsc, const char *rhs, GListPtr nodes, const char *
 
     if(can_run_any(work)) {
 		/* マージしたノード情報リストにリソースを起動可能なノードがある場合(weight>=0がある) */
-		/* さらに、指定リソースのすべてのcolocation情報のwith-rsc指定情報を処理する */
+		/* 指定リソースがさらにwith指定されている場合は、そのノード情報のweightも、指定ノード情報リストにマージする */
 	slist_iter(
 	    constraint, rsc_colocation_t, rsc->rsc_cons_lhs, lpc,
 
