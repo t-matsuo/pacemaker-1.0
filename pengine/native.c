@@ -354,7 +354,7 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 
 		GListPtr archive = NULL;
 		/* colocation情報のwith-rscに対応するリソース情報を取り出す */
-		/* ※まずは、このリソースの依存リソース(with-rsc)を処理する */
+		/* ※まずは、このリソースの依存リソース(with-rsc)のcolorを処理するため */
 		resource_t *rsc_rh = constraint->rsc_rh;
 		crm_debug_2("%s: Pre-Processing %s (%s, %d, %s)",
 			    rsc->id, constraint->id, rsc_rh->id,
@@ -372,7 +372,7 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 		/************************* このリソースに対するwith-rsc指定のリソースのcolorを先に処理する ***********************/
 		/* このリソースのcolocation情報の依存するリソース(with-rsc)に対応するリソースをcolor処理を実行する */
 		rsc_rh->cmds->color(rsc_rh, data_set);
-		/* このリソースのrsc_colocation_lh処理でこのリソースのcolocationのスコアを反映処理 */
+		/* このリソースのrsc_colocation_lh処理でこのwith-rscリソースのcolocationのスコアを反映する */
 		/* ※with-rsc指定されたリソースの配置先が決定している場合には、このリソースのweightにcolocationのスコアを反映する */
 		rsc->cmds->rsc_colocation_lh(rsc, rsc_rh, constraint);	
 		if(archive && can_run_any(rsc->allowed_nodes) == FALSE) {
@@ -388,8 +388,7 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 	    );	
 	/* colocationのスコア適応後のダンプ */
 	dump_node_scores(alloc_details, rsc, "Post-coloc", rsc->allowed_nodes);
-	/************************* このリソースに対するcolocationタグのwith-rsc指定を処理する ***********************/
-	/* このリソース情報のrsc_cons_lhsリスト(このリソースに対する他のリソースからcolocation情報でwith-rsc指定されている情報）をすべて処理する */
+	/************************* このリソースがcolocationタグのwith-rsc指定されている制約をすべて処理する ***********************/
 	/* ※ただし、groupリソースは配下の場合、rsc_cons_lhsリストには、groupリソースのrsc_cons_lhsリスト(このリソースに対するcolocation情報) */
 	/* ※rsc_cons_lhsリストには、このリソースに対する他リソースからのwith-rsc指定されているcolocation情報が入っている */
 	slist_iter(
