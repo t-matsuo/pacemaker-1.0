@@ -142,7 +142,7 @@ struct node_s {
 #define pe_rsc_managed		0x00000002ULL
 
 #define pe_rsc_notify		0x00000010ULL
-#define pe_rsc_unique		0x00000020ULL
+#define pe_rsc_unique		0x00000020ULL		/* globally-unique=TRUEか、リソースの親リソースがpe_unknown、pe_native、pe_groupの場合(pe_clone,pe_master以外) にセット */
 
 #define pe_rsc_provisional	0x00000100ULL
 #define pe_rsc_allocating	0x00000200ULL		/* color処理実行中かどうかのフラグ */
@@ -180,7 +180,7 @@ struct resource_s {
 													/* restart-typeが指定されている場合は、そのタイプ値。指定なしの場合は、pe_restart_ignore */
 
 		int	 priority; 
-		int	 stickiness; 
+		int	 stickiness; 							/* stickiness値 	*/
 		int	 sort_index; 
 		int	 failure_timeout;
 		int	 effective_priority; 
@@ -190,7 +190,7 @@ struct resource_s {
 	
 		GListPtr rsc_cons_lhs;     /* rsc_colocation_t* *//* colocationで、自リソースがwith-rsc指定されている場合のcolocation情報 */
 		GListPtr rsc_cons;         /* rsc_colocation_t* *//* colocationで、自リソースがrsc指定されている場合のcolocation情報 */
-		GListPtr rsc_location;     /* rsc_to_node_t*    */
+		GListPtr rsc_location;     /* rsc_to_node_t*    *//* location指定の情報	*/
 		GListPtr actions;	   /* action_t*         */
 		/* リソース配置を決定したノード情報 */
 		node_t *allocated_to;
@@ -207,8 +207,8 @@ struct resource_s {
 		enum rsc_role_e role;		/* 現在のrole */
 		enum rsc_role_e next_role;	/* 次の遷移role */
 
-		GHashTable *meta;	   
-		GHashTable *parameters;
+		GHashTable *meta;			/* リソースのmeta情報のハッシュテーブル */	   
+		GHashTable *parameters;		/* リソースのparameter情報のハッシュテーブル	*/
 
 		GListPtr children;	  /* resource_t* */	/* 子リソース情報リスト */
 };

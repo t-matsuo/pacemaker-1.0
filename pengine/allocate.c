@@ -588,8 +588,8 @@ common_apply_stickiness(resource_t *rsc, node_t *node, pe_working_set_t *data_se
 	}
 	
 	if(is_not_set(rsc->flags, pe_rsc_unique)) {
-		/* リソース情報のpe_rsc_uniqueフラグがセットされていない場合は、トップのリソース情報 */
-		/* 故障情報のセット用に取得する */
+		/* リソース情報のpe_rsc_uniqueフラグがセット(globally-uniqueがFALSEか、そのトップリソースがpe_clone,pe_masterの場合 */
+		/* トップのリソース情報故障情報のセット用に取得する */
 	    failed = uber_parent(rsc);
 	}
 	/* リソースの故障カウントを取得する */
@@ -601,7 +601,9 @@ common_apply_stickiness(resource_t *rsc, node_t *node, pe_working_set_t *data_se
 			/* リソース情報のallowed_nodesリストの対象ノードのスコアに、 */
 			/* このリソースの-INFINITY値をマージする */
 			/* ※重要:これによって、このリソース情報のallowed_nodesリストのこのノードのスコアは-INFINITYになるので、配置されない */
-		resource_location(failed, node, -INFINITY, "__fail_limit__", data_set);
+			/* ただし、clone,masterリソースの場合(pe_rsc_uniqueFALSE)は、子リソースには-INFINITYは配置されない */
+			/* clone,masterリソースの子リソースへの-INFINITY反映はcolor時まで遅れることになる*/
+					resource_location(failed, node, -INFINITY, "__fail_limit__", data_set);
 		crm_warn("Forcing %s away from %s after %d failures (max=%d)",
 			 failed->id, node->details->uname, fail_count, rsc->migration_threshold);
 	    } else {
