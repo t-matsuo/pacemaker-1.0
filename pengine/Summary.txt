@@ -1,3 +1,25 @@
+★概要
+  colocation A with Bの場合、必ず、B側のcolorから処理される
+  よって
+    colocation A with B
+    colocation B with C
+  の場合は、最初にCのcolorが処理される
+  with側のcolor処理中に、左側のスコアもwith側にマージされる
+  
+  with側のcolor処理完了後(配置先決定、配置先候補ノード情報のスコア決定)に、スコアは左側のスコアにマージされる
+  rsc側のcolor処理に戻って(with側のマージ後)、with側から反映されたスコアを元にして配置先を決定する。
+
+  Masterリソース、cloneリソースは、colorが処理されない間は、子リソースの配置先候補ノード情報にスコア(故障時などの-INFINITY)が反映されない。
+   * 反映は、親リソースだけで子リソースはcolor時に反映
+
+　よって、通常のnativeリソースをA、Master/cloneリソースをFとした場合
+
+     A with F
+  と
+     F with A
+　では、F故障時の動作が異なる。
+
+
 1) colocation
   
    colocation A with B sore:INF の場合
