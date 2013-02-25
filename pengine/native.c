@@ -401,7 +401,7 @@ native_color(resource_t *rsc, pe_working_set_t *data_set)
 	
 	print_resource(LOG_DEBUG_2, "Allocating: ", rsc, FALSE);
 	if(rsc->next_role == RSC_ROLE_STOPPED) {
-		/* このリソースの次のロールがRSC_ROLE_STOPPEDの場合 */
+		/* このリソースの次の遷移ロールがRSC_ROLE_STOPPED(稼動しない)の場合 */
 		crm_debug_2("Making sure %s doesn't get allocated", rsc->id);
 		/* make sure it doesnt come up again */
 		/* このリソースの配置ノード(allowed_nodes)に、data_set->nodesの全てのノードのリストを */
@@ -889,7 +889,7 @@ filter_colocation_constraint(
 	return TRUE;
 }
 /*
- colocation反映処理
+ colocation反映処理(rsc指定側にwith-rsc指定側の決定しているスコアを反映する)
 */
 static void
 colocation_match(
@@ -1011,11 +1011,11 @@ void native_rsc_colocation_rh(
 				rsc_lh->id, rsc_rh->id,
 				details_rh?details_rh->uname:"n/a");
 		}
-		
+		/* 反映せずに抜ける */
 		return;
 		
 	} else {
-		/* colocationを反映する */
+		/*  colocation反映処理(rsc指定側にwith-rsc指定側の決定しているスコアを反映する) */
 		colocation_match(rsc_lh, rsc_rh, constraint);
 	}
 }

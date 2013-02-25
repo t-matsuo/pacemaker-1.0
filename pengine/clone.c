@@ -1076,10 +1076,10 @@ void clone_rsc_colocation_lh(
 	CRM_CHECK(FALSE, crm_err("This functionality is not thought to be used. Please report a bug."));
 	CRM_CHECK(rsc_lh, return);
 	CRM_CHECK(rsc_rh, return);
-	
+	/* rsc指定側の全ての子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc_lh->children, lpc,
-		
+		/* rsc指定側の子リソースにwith-rsc指定側のスコアを反映する */
 		child_rsc->cmds->rsc_colocation_lh(child_rsc, rsc_rh, constraint);
 		);
 
@@ -1165,10 +1165,10 @@ void clone_rsc_colocation_rh(
 		g_list_free(rhs);
 		return;
 	}
-
+	/* with-rsc指定側の全ての子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc_rh->children, lpc,
-		
+		/* with-rsc指定側の子リソースからrsc指定側へスコアを反映 */
 		child_rsc->cmds->rsc_colocation_rh(rsc_lh, child_rsc, constraint);
 		);
 }

@@ -360,25 +360,27 @@ check_actions_for(xmlNode *rsc_entry, resource_t *rsc, node_t *node, pe_working_
 	gboolean is_probe = FALSE;
 
 	CRM_CHECK(node != NULL, return);
-
+	/* orphanなリソースは処理しない */
 	if(is_set(rsc->flags, pe_rsc_orphan)) {
 		crm_debug_2("Skipping param check for %s: orphan", rsc->id);
 		return;
 		
 	} else if(pe_find_node_id(rsc->running_on, node->details->id) == NULL) {
+		/* 対象リソースが対象ノードで起動していない場合も処理しない */
 		crm_debug_2("Skipping param check for %s: no longer active on %s",
 			    rsc->id, node->details->uname);
 		return;
 	}
 	
 	crm_debug_3("Processing %s on %s", rsc->id, node->details->uname);
-	
+	/* リソースのパラメータをチェックする */
 	if(check_rsc_parameters(rsc, node, rsc_entry, data_set)) {
 	    DeleteRsc(rsc, node, FALSE, data_set);
 	}
-	
+	/* タグ内の全ての"lrm_rsc_op"タグを処理する */
 	xml_child_iter_filter(
 		rsc_entry, rsc_op, XML_LRM_TAG_RSC_OP,
+		/* 作業リストに"lrm_rsc_op"の内容を追加する */
 		op_list = g_list_append(op_list, rsc_op);
 		);
 
@@ -470,28 +472,32 @@ find_rsc_list(
     
     return result;
 }
-
+/*
+	アクションチェック処理
+*/
 static void
 check_actions(pe_working_set_t *data_set)
 {
     const char *id = NULL;
     node_t *node = NULL;
     xmlNode *lrm_rscs = NULL;
+    /* xml情報のstatusタグのポインタを取り出す */
     xmlNode *status = get_object_root(XML_CIB_TAG_STATUS, data_set->input);
-
+	/* 全てのstatus情報の"node_state"タグを処理する */
     xml_child_iter_filter(
 	status, node_state, XML_CIB_TAG_STATE,
-
+	/* id情報を取り出して、"lrm_resources"タグを取り出す */
 	id       = crm_element_value(node_state, XML_ATTR_ID);
 	lrm_rscs = find_xml_node(node_state, XML_CIB_TAG_LRM, FALSE);
 	lrm_rscs = find_xml_node(lrm_rscs, XML_LRM_TAG_RESOURCES, FALSE);
-
+	/* idがノード情報として存在するか検索する */
 	node = pe_find_node_id(data_set->nodes, id);
 
 	if(node == NULL) {
-	    continue;
+	    continue;	/* 存在しないノードの情報は処理しない */
 
 	} else if(can_run_resources(node) == FALSE) {
+		/* 取得したノードでリソースが起動可能でなければ処理しない */
 	    crm_debug_2("Skipping param check for %s: cant run resources",
 			node->details->uname);
 	    continue;
@@ -499,6 +505,8 @@ check_actions(pe_working_set_t *data_set)
 	
 	crm_debug_2("Processing node %s", node->details->uname);
 	if(node->details->online || is_set(data_set->flags, pe_flag_stonith_enabled)) {
+		/* 取得したノードがオンラインか、stonithが有効な場合 */
+	    /* 取得した"lrm_resources"タグの"lrm_resource"タグを全て処理する */
 	    xml_child_iter_filter(
 		lrm_rscs, rsc_entry, XML_LRM_TAG_RESOURCE,
 		if(xml_has_children(rsc_entry)) {
@@ -507,6 +515,7 @@ check_actions(pe_working_set_t *data_set)
 		    CRM_CHECK(rsc_id != NULL, return);
 
 		    result = find_rsc_list(NULL, NULL, rsc_id, TRUE, FALSE, data_set);
+		    /* アクションチェック処理を実行する */
 		    slist_iter(rsc, resource_t, result, lpc, 
 			       check_actions_for(rsc_entry, rsc, node, data_set));
 		    g_list_free(result);
@@ -911,8 +920,10 @@ stage2(pe_working_set_t *data_set)
 gboolean
 stage3(pe_working_set_t *data_set)
 {
+	/* 全てのリソース情報を処理する */
 	slist_iter(
 		rsc, resource_t, data_set->resources, lpc,
+		/* 全てのリソースの内部的な制約を処理する */
 		rsc->cmds->internal_constraints(rsc, data_set);
 		);
 	
@@ -925,6 +936,7 @@ stage3(pe_working_set_t *data_set)
 gboolean
 stage4(pe_working_set_t *data_set)
 {
+	/* アクションをチェックする */
 	check_actions(data_set);
 	return TRUE;
 }
@@ -949,31 +961,36 @@ stage5(pe_working_set_t *data_set)
 
 	return TRUE;
 }
-
+/* 対象リソースが管理状態かどうかチェックする */
 static gboolean is_managed(const resource_t *rsc)
 {
     if(is_set(rsc->flags, pe_rsc_managed)) {
+		/* pe_rsc_managedフラグがセットされている場合は、TRUE */
 	return TRUE;
     }
-    
+    /* pe_rsc_managedフラグがセットされていない場合は、全ての子リソースを処理する */
     slist_iter(
 	child_rsc, resource_t, rsc->children, lpc,
 	if(is_managed(child_rsc)) {
+		/* 子リソースのpe_rsc_managedフラグがセットされている場合はTRUE */
 	    return TRUE;
 	}
 	);
-    
+    /* 対象リソース並びに、子リソースにpe_rsc_managedフラグがセットせれていない場合は、FALSE */
     return FALSE;
 }
-
+/* 処理対象のxml情報にpe_rsc_managedフラグがセットされたリソースが１つでもあるかどうかをチェックする */
 static gboolean any_managed_resouces(pe_working_set_t *data_set)
 {
+	/* 全ての子リソースを処理する */
     slist_iter(
 	rsc, resource_t, data_set->resources, lpc,
 	if(is_managed(rsc)) {
+		/* １つでも、pe_rsc_managedフラグがセットされていればTRUE */
 	    return TRUE;
 	}
 	);
+	/* １つもpe_rsc_managedフラグがセットされているリソースがない場合はFALSE */
     return FALSE;
 }
 
@@ -999,14 +1016,16 @@ stage6(pe_working_set_t *data_set)
 	   && (is_set(data_set->flags, pe_flag_have_quorum)
 	       || data_set->no_quorum_policy == no_quorum_ignore
 	       || data_set->no_quorum_policy == no_quorum_suicide)) {
+		/* stonithが有効で、QUORUMを保持しているか、no_quorum_policyがignoreか、suicideの場合はstonithを有効にする */
 	    need_stonith = TRUE;
 	}
 	
 	if(need_stonith && any_managed_resouces(data_set) == FALSE) {
+		/* stonithが有効と判断されても、管理リソースが存在しない場合は、stonithを無効にする */
 	    crm_info("Delaying fencing operations until there are resources to manage");
 	    need_stonith = FALSE;
 	}
-	
+	/* 全てのノード情報を処理する */
 	slist_iter(
 		node, node_t, data_set->nodes, lpc,
 
