@@ -410,7 +410,7 @@ convert_non_atomic_task(char *old_uuid, resource_t *rsc, gboolean allow_notify, 
     return uuid;
 }
 
-
+/* order情報の生成 */
 void
 order_actions(
 	action_t *lh_action, action_t *rh_action, enum pe_ordering order) 

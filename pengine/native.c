@@ -1049,10 +1049,13 @@ static GListPtr find_actions_by_task(GListPtr actions, resource_t *rsc, const ch
 
     return list;
 }
-
+/*
+  order情報でnativeリソースのfirst指定を処理する
+*/
 void native_rsc_order_lh(resource_t *lh_rsc, order_constraint_t *order, pe_working_set_t *data_set)
 {
 	GListPtr lh_actions = NULL;
+	/* order情報のfirst指定のactionと、then指定のリソースを取り出す */
 	action_t *lh_action = order->lh_action;
 	resource_t *rh_rsc = order->rh_rsc;
 
@@ -1060,6 +1063,7 @@ void native_rsc_order_lh(resource_t *lh_rsc, order_constraint_t *order, pe_worki
 	CRM_ASSERT(lh_rsc != NULL);
 	
 	if(lh_action != NULL) {
+		/* first指定のactionが指定されている場合は、リストに追加する */
 		lh_actions = g_list_append(NULL, lh_action);
 
 	} else if(lh_action == NULL) {
@@ -1116,7 +1120,9 @@ void native_rsc_order_lh(resource_t *lh_rsc, order_constraint_t *order, pe_worki
 
 	pe_free_shallow_adv(lh_actions, FALSE);
 }
-
+/*
+  order情報でnativeリソースのthen指定を処理する
+*/
 void native_rsc_order_rh(
 	action_t *lh_action, resource_t *rsc, order_constraint_t *order)
 {

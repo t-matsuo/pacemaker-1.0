@@ -1142,29 +1142,35 @@ stage6(pe_working_set_t *data_set)
  * Mark dependencies of un-runnable actions un-runnable
  *
  */
+/*
+  order情報処理
+*/
 gboolean
 stage7(pe_working_set_t *data_set)
 {
 	crm_debug_4("Applying ordering constraints");
-
+	/* 全てのorder情報を処理する */
 	slist_iter(
 		order, order_constraint_t, data_set->ordering_constraints, lpc,
-
+		/* order情報のfirst指定のリソース情報を取り出す */
 		resource_t *rsc = order->lh_rsc;
 		crm_debug_3("Applying ordering constraint: %d", order->id);
 		
 		if(rsc != NULL) {
+			/* first指定がある場合は、first指定処理を実行する */
 			crm_debug_4("rsc_action-to-*");
 			rsc->cmds->rsc_order_lh(rsc, order, data_set);
 			continue;
 		}
-
+		/* order情報のthen指定のリソース情報を取り出す */
 		rsc = order->rh_rsc;
 		if(rsc != NULL) {
 			crm_debug_4("action-to-rsc_action");
+			/* then指定がある場合は、then指定処理を実行する */
 			rsc->cmds->rsc_order_rh(order->lh_action, rsc, order);
 
 		} else {
+			/* first指定も、then指定も無い場合の処理を実行する */
 			crm_debug_4("action-to-action");
 			order_actions(
 				order->lh_action, order->rh_action, order->type);
