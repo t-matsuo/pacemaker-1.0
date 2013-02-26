@@ -950,7 +950,7 @@ colocation_match(
 	if(can_run_any(work)
 	   || constraint->score <= -INFINITY
 	   || constraint->score >= INFINITY) {
-		/* rsc指定リソースの配置可能ノード情報リストに、リソースを実行可能なノードがない場合 */
+		/* rsc指定リソースの配置可能ノード情報リストに、リソースを実行可能なノードがある場合 */
 		/* または、スコアが-INFINITYもしくはINFINITY の場合は、*/
 		/* rsc指定リソースの配置可能ノード情報リストを廃棄して、上記処理でweight処理されたノード情報をセットする */
 		slist_destroy(node_t, node, rsc_lh->allowed_nodes, crm_free(node));
