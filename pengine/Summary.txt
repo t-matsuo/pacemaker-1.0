@@ -18,6 +18,9 @@
   と
      F with A
 　では、F故障時の動作が異なる。
+  
+  これは、with Fとした場合は、Fのcolor処理が済んでいる為、A側への配置ノード関連の反映が行われるが...
+  with Aとした場合には、A側の配置ノード関連への反映は、まだ、F側のcolor処理が済んでいないので行われない....
 
 
 1) colocation
@@ -46,19 +49,20 @@
      B - node1:0
          node2:0
    2) Bのcolor処理
-     B - node1:0+200 (colocationの反映: Aのスコアマージ)
-         node2:0+*100 (colocationの反映: Aのスコアマージ)
+     B - node1:0+200*1 (colocationの反映: Aのスコアマージ)
+         node2:0+*100*1 (colocationの反映: Aのスコアマージ)
          node1:allocated_to
    3) Aのcolor処理戻り
      A - node1:200
          node2:100
      --------------(colocationの反映)--------------------------------
-     A - node1:200 + 200(Bの配置先の候補ノード情報を反映)
-         node2:100 + 100(Bの配置先の候補ノード情報を反映)
+     A - node1:200 (Bの配置先の候補ノード情報を反映するがスコアは加算されない)
+         node2:100+(-INFINITY) (Bの配置先の候補ノード情報を反映するがスコアは加算されない.追い出しの-INFINITYだけが加算される)
 
      --------------(Bの決定した配置先の反映)--------------------------------
      A - node1:200
          node2:100+(-INFINITY)
+         node1:allocated_to
    4)処理後
 	native_color: resourceB allocation score on rh63-heartbeat1: 200 -配置
 	native_color: resourceB allocation score on rh63-heartbeat2: 100
@@ -90,8 +94,8 @@
          node2:0
 
    4) Bのcolor処理
-     B - node1:-INFINITY + INFINITY (colocationの反映: Aのスコアマージ)
-         node2:0 + 100 (colocationの反映: Aのスコアマージ)
+     B - node1:-INFINITY + INFINITY * 1 (colocationの反映: Aのスコアマージ)
+         node2:0 + 100 * 1(colocationの反映: Aのスコアマージ)
          node2:allocated_to
    5) Aのcolor処理戻り
      A - node1:INFINITY
@@ -99,6 +103,7 @@
      --------------(colocationの反映)--------------------------------
      A - node1:INFINITY + -INFINITY(Bの配置先の候補ノード情報を反映)
          node2:100
+         node2:allocated_to
 
    4)処理後
 	native_color: resourceB allocation score on rh63-heartbeat1: -1000000
@@ -131,8 +136,8 @@
          node2:0
 
    4) Bのcolor処理
-     B - node1:-INFINITY + -INFINITY (colocationの反映: Aのスコアマージ)
-         node2:0 + 100 (colocationの反映: Aのスコアマージ)
+     B - node1:INFINITY + -INFINITY * 1 (colocationの反映: Aのスコアマージ)
+         node2:0 + 100 * 1 (colocationの反映: Aのスコアマージ)
          node2:allocated_to
    5) Aのcolor処理戻り
      A - node1:-INFINITY
@@ -140,6 +145,7 @@
      --------------(colocationの反映)--------------------------------
      A - node1:-INFINITY + -INFINITY(Bの配置先の候補ノード情報を反映)
          node2:100
+         node2:allocated_to
 
    4)処理後
 	native_color: resourceB allocation score on rh63-heartbeat1: -1000000
@@ -149,3 +155,26 @@
 
 
 
+★未整理メモ
+ * 起動済み、故障検知のロケーション反映
+  * 起動済みのリソースに関しては、stage2処理で
+    リソース情報のrunnning_onリストに設定され、common_apply_stickiness()処理にて、"stickiness"ロケーションとして
+    resource-stickiness値がセットされる
+  * 故障検知のリソースもstage2処理で
+　  "__fail_limit__"ロケーションとして、-INFINITY値がセットされる
+  * 上記設定されたロケーションは、続く、stage2処理のapply_placement_constraint()処理にて、
+    リソース情報の配置候補ノード情報リスト(allowed_nodes)のweightへ反映される
+ * colocationのscore処理の違い
+  * score = INFINITY設定時
+　　with側の配置ノード情報へのcolocation反映時に、rsc側の配置候補ノード情報リストのスコアが反映(factor:1-係数で)される
+     * 係数の計算だけに、INFINITY/INFINITY=1が利用される
+    rsc側からのwith側のcolocation反映時は、with指定側の配置ノード(allocated_to)が決定していない場合か、with指定側の配置ノードでない
+    ノードへの反映時に-INFINITY値(スコア値:-INFINITY*facttor:1)が反映される。
+    よって、INFINITY設定時は、そのままINFINITY値がセットされることはない。(配置不可として-INFININTYは上記の通りあり)
+  * INFINITY > sore > 0設定時
+　　with側の配置ノード情報へのcolocation反映時に、rsc側の配置候補ノード情報リストのスコアが反映されない(factor:0-係数で)
+    rsc側からのwith側のcolocation反映時は、そのままスコア値が反映される
+    しかし、反映した結果配置先がないようであれば反映はキャンセルされる
+
+
+　 
