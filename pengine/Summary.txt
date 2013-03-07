@@ -4,9 +4,9 @@
     colocation A with B
     colocation B with C
   の場合は、最初にCのcolorが処理される
-  with側のcolor処理中に、左側のスコアもwith側にマージされる
+  with側のcolor処理中に、左側(rsc側)のスコアもwith側にマージされる
   
-  with側のcolor処理完了後(配置先決定、配置先候補ノード情報のスコア決定)に、スコアは左側のスコアにマージされる
+  with側のcolor処理完了後(配置先決定、配置先候補ノード情報のスコア決定)に、スコアは左側(rsc側)のスコアにマージされる
    * この時、左側のリソースがwith指定されているcolocationがあれば、さらにそのcolocationを手繰って、スコアを左側のスコアにマージする。
    * 上記の例だと、C処理後に、Bにスコアマージして、さらに、Bを手繰って、Aまでスコアマージするということ。
   rsc側のcolor処理に戻って(with側のマージ後)、with側から反映されたスコアを元にして配置先を決定する。
@@ -23,6 +23,25 @@
   
   これは、with Fとした場合は、Fのcolor処理が済んでいる為、A側への配置ノード関連の反映が行われるが...
   with Aとした場合には、A側の配置ノード関連への反映は、まだ、F側のcolor処理が済んでいないので行われない....
+
+
+ ●内部的に追加されるcolocationについて
+   primitiveリソース	: なし
+   groupリソース		: ordered=true(デフォルト)の場合、groupリソース内の子リソース間(前後関係でINF)のcolocationが追加される	group_internal_constraints()
+   cloneリソース		: なし(内部の子リソース自体の追加処理は、必要があれば個別に処理される) 例:cloneの中にgroupがある場合など....
+   masterリソース		: なし(内部の子リソース自体の追加処理は、必要があれば個別に処理される) 例:master/slaveの中にgroupがある場合など....
+
+ ●color時の特殊なcolocation処理について
+   primitiveリソース	: なし
+   groupリソース		: groupリソースに付けられているcolocation(rsc指定、with-rsc指定)の情報は全て最初の子リソースにセットする。
+						　そして、最初の子リソースにセットしたgroupリソース自体のcolocation情報は削除する。	group_color()
+   cloneリソース		: clone_max値と起動ノード数によって処理が違う
+						  clone_max指定があって起動ノード数が一致しない場合は、cloneリソースのcolocation情報(rsc指定、with-src指定）を子インスタンスにセットする
+						  clone_max指定があって起動ノード数が一致する場合は、cloneリソースのcolocation情報(rsc指定のみ）を子インスタンスにセットする
+                           * 負数とINFINITY設定のrsc指定がセットされる
+　　　　　　　　　　　　　 * ただし、負数や-INFINITY設定のwith-rsc指定はセットされる
+																											clone_color()
+   masterリソース		: masterリソース自体は、cloneリソースのcolor時の処理を実行している為、cloneリソースと子インスタンスと同じcolocation情報がセットされる
 
 
 1) colocation
