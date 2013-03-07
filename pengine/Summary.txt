@@ -4,12 +4,15 @@
     colocation A with B
     colocation B with C
   の場合は、最初にCのcolorが処理される
-  with側のcolor処理中に、左側(rsc側)のスコアもwith側にマージされる
   
-  with側のcolor処理完了後(配置先決定、配置先候補ノード情報のスコア決定)に、スコアは左側(rsc側)のスコアにマージされる
-   * この時、左側のリソースがwith指定されているcolocationがあれば、さらにそのcolocationを手繰って、スコアを左側のスコアにマージする。
-   * 上記の例だと、C処理後に、Bにスコアマージして、さらに、Bを手繰って、Aまでスコアマージするということ。
-  rsc側のcolor処理に戻って(with側のマージ後)、with側から反映されたスコアを元にして配置先を決定する。
+  with側のcolor処理中に、左側(rsc側)のスコアもwith側にマージされる
+   * 左側(rsc側)故障などによるwith側のcolor決定スコアへの反映
+   * 全てのwith側が指定されているcolocationを手繰って、そのスコアもwith側のcolorスコアへ反映する
+
+  with側のcolor処理完了後(配置先決定、配置先候補ノード情報のスコア決定)に、rsc側のcolor処理に戻って、with側のcolorで決定したスコアをrcs側にマージする
+  全てのrsc側が指定されているcolocationを手繰って、そのスコアもwith側のcolorスコアへ反映する
+  
+　rsc側の配置先を決定する。
 
   Masterリソース、cloneリソースは、colorが処理されない間は、子リソースの配置先候補ノード情報にスコア(故障時などの-INFINITY)が反映されない。
    * 反映は、親リソースだけで子リソースはcolor時に反映
@@ -44,12 +47,13 @@
    masterリソース		: masterリソース自体は、cloneリソースのcolor時の処理を実行している為、cloneリソースと子インスタンスと同じcolocation情報がセットされる
 
 
-1) colocation
+1) colocationの例
   
    colocation A with B sore:INF の場合
 
    1-1) Bのcolorを先に処理
    	* 計算したBの配置先の候補ノード情報にAの配置先の候補ノード情報をマージする : colocationの反映
+     * 例えば、Aリソースに故障が発生してAの配置先-INFで状態遷移が処理されれば、-INFがBにも反映される
    	* Bの配置先を決定 : allocated_toへ
    1-2) Aのcolor処理に戻る
     * 決定したBの配置先情報をAの配置先の候補ノード情報に反映する : colocationの反映
