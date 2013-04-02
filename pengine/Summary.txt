@@ -212,4 +212,32 @@
 
     Bへの反映から、さらにAを手繰る時にも、AとC間の関係はマイナス値として処理するように内部でmultiplier値を持っている。
 
-　 
+ * Master:role指定のcolocationが適用されない
+   
+   colocation A:Master with B score :INF
+
+　 のようなcolocationがある場合、対象MasterリソースAがcolocationを適用した結果、配置先がなくなる場合にはcolocationが適用されない。
+　 例えば、Master/Slave構成で単一Masterノード起動時などが該当する。
+　 この場合、Bリソース故障によってAリソースは停止されずにそのまま保持されることになる。
+
+　 該当処理は、以下の部分である(pengine/native.c)
+
+  {{{
+		/************************* このリソースに対するwith-rsc指定のリソースのcolorを先に処理する ***********************/
+		/* このリソースのcolocation情報の依存するリソース(with-rsc)に対応するリソースをcolor処理を実行する */
+		rsc_rh->cmds->color(rsc_rh, data_set);
+		/* このリソースのrsc_colocation_lh処理でこのwith-rscリソースのcolocationのスコアを反映する */
+		/* ※with-rsc指定されたリソースの配置先が決定している場合には、このリソースのweightにcolocationのスコアを反映する */
+		rsc->cmds->rsc_colocation_lh(rsc, rsc_rh, constraint);	
+		if(archive && can_run_any(rsc->allowed_nodes) == FALSE) {
+			/* colocation情報のrole_lh(with-rscのrole)がRSC_ROLE_MASTER以上か、スコアがマイナス値で設定されていて（-INFINTY以外)、リソースの配置可能なノードがない場合 */
+			/* with-rsc指定側の反映をキャンセルする */
+		    crm_info("%s: Rolling back scores from %s", rsc->id, rsc_rh->id);
+		    pe_free_shallow_adv(rsc->allowed_nodes, TRUE);
+		    /* リソースのallowed_nodesリストにarchiveリストをセットする */
+		    rsc->allowed_nodes = archive;
+		    archive = NULL;
+		}
+		pe_free_shallow_adv(archive, TRUE);
+	    );	
+  }}}
