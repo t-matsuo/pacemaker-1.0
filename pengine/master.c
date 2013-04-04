@@ -632,15 +632,21 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 
 		apply_master_location(child_rsc->rsc_location);
 		apply_master_location(rsc->rsc_location);
+		/* 子リソースのrsc指定の全てのcolocation情報を処理する */
+		/* 注意：この時点では、子リソースのnext_roleが決定していない場合もあり(起動直後のSlave状態でMaster昇格前など) */
+		/* その場合、roleをもったcolocationなどは適用されない */
 		slist_iter(
 		    cons, rsc_colocation_t, child_rsc->rsc_cons, lpc2,
+		    /* 子リソースのrsc指定のcolocationを処理する */
 		    child_rsc->cmds->rsc_colocation_lh(child_rsc, cons->rsc_rh, cons);
 		    );
 		
+		/* 子リソースのsort_indexをpriorityからセットする */
 		child_rsc->sort_index = child_rsc->priority;
 		crm_debug_2("Assigning priority for %s: %d", child_rsc->id, child_rsc->priority);
 
 		if(next_role == RSC_ROLE_MASTER) {
+			/* 次の遷移roleがMASTERの場合は、sort_indexを最大値にセットする */
 		    child_rsc->sort_index = INFINITY;
 		}
 
@@ -651,6 +657,7 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 
 	/* mark the first N as masters */
 	/* master_promotion_order()にてソート済みの、全てのmasterリソースの子リソースを処理する */
+	/* よって、sort_indexの大きな子リソースからPromoteされることになる */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
 
