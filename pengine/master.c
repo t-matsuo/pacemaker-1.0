@@ -282,61 +282,69 @@ static void master_promotion_order(resource_t *rsc)
     clone_data->merged_master_weights = TRUE;
     crm_debug_2("Merging weights for %s", rsc->id);
     set_bit(rsc->flags, pe_rsc_merging);
-
+	/* 全ての子リソースを処理して、sort_indexをダンプ */
     slist_iter(
 	child, resource_t, rsc->children, lpc,
 	crm_debug_2("%s: %d", child->id, child->sort_index);
 	);
+	/* 処理前の配置可能ノードリスト情報をダンプ */
     dump_node_scores(LOG_DEBUG_3, rsc, "Before", rsc->allowed_nodes);
 
+	/* 全ての子リソースを処理する */
     slist_iter(
 	child, resource_t, rsc->children, lpc,
 
 	chosen = child->fns->location(child, NULL, FALSE);
 	if(chosen == NULL || child->sort_index < 0) {
+		/* 配置先がNULLまたは、sort_indexが0未満のリソース情報をダンプして処理しない */
 	    crm_debug_3("Skipping %s", child->id);
 	    continue;
 	}
-
+	/* Masterリソースの配置可能ノードリストに配置先が含まれるか検索する */
 	node = (node_t*)pe_find_node_id(
 	    rsc->allowed_nodes, chosen->details->id);
 	CRM_ASSERT(node != NULL);
 	/* adds in master preferences and rsc_location.role=Master */
+	/* 配置可能ノードリストのweightにsort_index値をマージする */
 	node->weight = merge_weights(child->sort_index, node->weight);
 	);
-    
+   	/* 処理途中(colocation処理前)の配置可能ノードリスト情報をダンプ */
     dump_node_scores(LOG_DEBUG_3, rsc, "Middle", rsc->allowed_nodes);
-
+	/* 対象Masterリソースがrsc指定されている全てのcolocation情報を処理する */
     slist_iter(
 	constraint, rsc_colocation_t, rsc->rsc_cons, lpc,
 	/* (re-)adds location preferences of resources that the
 	 * master instance should/must be colocated with
 	 */
 	if(constraint->role_lh == RSC_ROLE_MASTER) {
+		/* colocation情報のrsc指定指定にrole:Masterが付いている場合 */
 	    set_bit(rsc->flags, pe_rsc_merging);
 	    crm_debug_2("RHS: %s with %s: %d", constraint->rsc_lh->id, constraint->rsc_rh->id, constraint->score);
+	    /* Masterリソースの配置可能ノードリスト情報に、with-rsc指定側の重みをマージする */
 	    rsc->allowed_nodes = constraint->rsc_rh->cmds->merge_weights(
 		constraint->rsc_rh, rsc->id, rsc->allowed_nodes,
 		constraint->node_attribute, constraint->score/INFINITY, constraint->score==INFINITY?FALSE:TRUE, FALSE);
 	    clear_bit(rsc->flags, pe_rsc_merging);
 	}
 	);
-    
+	/* 対象Masterリソースがwith-rsc指定されている全てのcolocation情報を処理する */
     slist_iter(
 	constraint, rsc_colocation_t, rsc->rsc_cons_lhs, lpc,
 	/* (re-)adds location preferences of resource that wish to be
 	 * colocated with the master instance
 	 */
 	if(constraint->role_rh == RSC_ROLE_MASTER) {
+		/* colocation情報のwith-rsc指定指定にrole:Masterが付いている場合 */
 	    set_bit(rsc->flags, pe_rsc_merging);
 	    crm_debug_2("LHS: %s with %s: %d", constraint->rsc_lh->id, constraint->rsc_rh->id, constraint->score);
+	    /* Masterリソースの配置可能ノードリスト情報に、rsc指定側の重みをマージする */
 	    rsc->allowed_nodes = constraint->rsc_lh->cmds->merge_weights(
 		constraint->rsc_lh, rsc->id, rsc->allowed_nodes,
 		constraint->node_attribute, constraint->score/INFINITY, TRUE, TRUE);
 	    clear_bit(rsc->flags, pe_rsc_merging);
 	}
 	);
-
+   	/* 処理途中(colocation処理後)の配置可能ノードリスト情報をダンプ */
     dump_node_scores(LOG_DEBUG_3, rsc, "After", rsc->allowed_nodes);
 
     /* write them back and sort */
@@ -359,7 +367,7 @@ static void master_promotion_order(resource_t *rsc)
 	}
 	crm_debug_2("%s: %d", child->id, child->sort_index);
 	);
-
+	/* 子リソースを処理順にソートする */
     rsc->children = g_list_sort(rsc->children, sort_master_instance);
     clear_bit(rsc->flags, pe_rsc_merging);
 }
@@ -642,7 +650,7 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 	master_promotion_order(rsc);
 
 	/* mark the first N as masters */
-	/* 全てのmasterリソースの子リソースを処理する */
+	/* master_promotion_order()にてソート済みの、全てのmasterリソースの子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
 
