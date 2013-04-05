@@ -1034,7 +1034,9 @@ pe_free_action(action_t *action)
 	crm_free(action->node);
 	crm_free(action);
 }
-
+/*
+  recurring(繰り返し)なアクション情報リストを取得する
+*/
 GListPtr
 find_recurring_actions(GListPtr input, node_t *not_on_node)
 {
@@ -1042,8 +1044,10 @@ find_recurring_actions(GListPtr input, node_t *not_on_node)
 	GListPtr result = NULL;
 	CRM_CHECK(input != NULL, return NULL);
 	
+	/* 対象actionリストを全て処理する */
 	slist_iter(
 		action, action_t, input, lpc,
+		/* action情報の"interval"を取得する */
 		value = g_hash_table_lookup(action->meta, XML_LRM_ATTR_INTERVAL);
 		if(value == NULL) {
 			/* skip */
@@ -1052,17 +1056,20 @@ find_recurring_actions(GListPtr input, node_t *not_on_node)
 		} else if(safe_str_eq(CRMD_ACTION_CANCEL, action->task)) {
 			/* skip */
 		} else if(not_on_node == NULL) {
+			/* not_on_nodeパラメータ指定がない場合は、intevarl="0"以外、cancel以外のアクションを結果リストに追加 */
 			crm_debug_5("(null) Found: %s", action->uuid);
 			result = g_list_append(result, action);
 			
 		} else if(action->node == NULL) {
 			/* skip */
 		} else if(action->node->details != not_on_node->details) {
+			/* not_on_nodeパラメータ指定ががある場合は、アクションのノードとnot_on_nodeが一致しない場合は */
+			/* 結果リストに追加 */
 			crm_debug_5("Found: %s", action->uuid);
 			result = g_list_append(result, action);
 		}
 		);
-
+	/* 積み上げたリストを返す */
 	return result;
 }
 

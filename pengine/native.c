@@ -709,6 +709,9 @@ Recurring(resource_t *rsc, action_t *start, node_t *node,
 }
 /*
   native(primitve)リソースのアクションを生成
+  
+  --配置先情報、リソースのrole,next_roleから実行すべきアクションを生成する--
+  
 */
 void native_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 {
@@ -720,29 +723,39 @@ void native_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 	crm_debug_2("Createing actions for %s: %s->%s", rsc->id,
 		    role2text(rsc->role), role2text(rsc->next_role));
 	
+	/* リソースの配置先ノードを取得する */
 	chosen = rsc->allocated_to;
 	if(chosen != NULL && rsc->next_role == RSC_ROLE_UNKNOWN) {
+	    /* 配置先ノードが決定していて、リソースのnext_roleがUNKNOWNの場合は、next_roleをSTARTEDにセット */
 	    rsc->next_role = RSC_ROLE_STARTED;
-
 	} else if(rsc->next_role == RSC_ROLE_UNKNOWN) {
+		/* 上記以外の場合は、next_roleをSTOPPEDにセット */
 	    rsc->next_role = RSC_ROLE_STOPPED;
 	}
 
 	get_rsc_attributes(rsc->parameters, rsc, chosen, data_set);
 	
 	if(g_list_length(rsc->running_on) > 1) {
+		/* 既に２つ以上のノードで起動されてしまっている場合 */
  		if(rsc->recovery_type == recovery_stop_start) {
+			/* recovery_typeがrecoverty_stop_startの場合は	*/
 			pe_proc_warn("Attempting recovery of resource %s", rsc->id);
 			if(rsc->role == RSC_ROLE_MASTER) {
+				/* リソースのroleがMASTERの場合はDemoteする */
 			    DemoteRsc(rsc, NULL, FALSE, data_set);
 			}
+			/* リソースを停止 */
 			StopRsc(rsc, NULL, FALSE, data_set);
+			/* リソースのroleをSTOPPEDにセットする */
 			rsc->role = RSC_ROLE_STOPPED;
 		}
 		
 	} else if(rsc->running_on != NULL) {
 		/* 既に単一ノードで起動済みのリソースの場合 */
+		/* 起動済みの単一ノードの情報を取得 */
 		node_t *current = rsc->running_on->data;
+		/* NoroleChange処理を実行 */
+		/* Slave->Masterもここで行われる */
 		NoRoleChange(rsc, current, chosen, data_set);
 
 	} else if(rsc->role == RSC_ROLE_STOPPED && rsc->next_role == RSC_ROLE_STOPPED) {
@@ -766,23 +779,31 @@ void native_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 			rsc->id, role2text(RSC_ROLE_STOPPED), role2text(rsc->role));
 	    rsc->role = RSC_ROLE_STOPPED;
 	}
-
+	/* 現在のroleを保存する */
 	role = rsc->role;
 
 	while(role != rsc->next_role) {
+		/* 現在のroleと遷移先のroleから次のroleを決定する */
 		next_role = rsc_state_matrix[role][rsc->next_role];
 		crm_debug_2("Executing: %s->%s (%s)",
 			  role2text(role), role2text(next_role), rsc->id);
+		/* rsc_action_matrixからアクション処理を実行する */
 		if(rsc_action_matrix[role][next_role](
 			   rsc, chosen, FALSE, data_set) == FALSE) {
+			/* アクション処理がFALSEを返した場合は終了する */
 			break;
 		}
+		/* roleにnext_roleをセットする */
+		/* while()によって、元々のリソース遷移先roleになったら終了する */
 		role = next_role;
 	}
 
   do_recurring:
 	if(rsc->next_role != RSC_ROLE_STOPPED || is_set(rsc->flags, pe_rsc_managed) == FALSE) {
+		/* 次遷移roleがSTOPPPEDではなくて、managedリソースの場合 */
+		/* 起動ノードでのstartアクションを生成すする */
 		start = start_action(rsc, chosen, TRUE);
+		/* 繰り返し処理を実行する */
 		Recurring(rsc, start, chosen, data_set);
 	}
 }
@@ -1350,7 +1371,7 @@ LogActions(resource_t *rsc, pe_working_set_t *data_set)
 		   next->details->uname);
     }
 }
-
+/* 既に単一ノードで起動済みのリソースの場合 */
 void
 NoRoleChange(resource_t *rsc, node_t *current, node_t *next,
 	     pe_working_set_t *data_set)
@@ -1362,12 +1383,13 @@ NoRoleChange(resource_t *rsc, node_t *current, node_t *next,
 	crm_debug_2("Executing: %s (role=%s)", rsc->id, role2text(rsc->next_role));
 	
 	if(current == NULL || next == NULL) {
+		/* currentかnextがNULLの場合は処理しない */
 	    return;
 	}
 	
 	if(is_set(rsc->flags, pe_rsc_failed)
 	   || safe_str_neq(current->details->id, next->details->id)) {
-
+		/* 対象リソースが故障しているか、実行中のノード(current)と実行先のノード(next)が違うノードの場合 */
 		if(rsc->next_role > RSC_ROLE_STARTED) {
 		    gboolean optional = TRUE;
 		    if(rsc->role == RSC_ROLE_MASTER) {
@@ -1376,25 +1398,32 @@ NoRoleChange(resource_t *rsc, node_t *current, node_t *next,
 		    DemoteRsc(rsc, current, optional, data_set);
 		}
 		if(rsc->role == RSC_ROLE_MASTER) {
+			/* 対象リソースの現在のroleがMASTERの場合は、DEMOTE */
 			DemoteRsc(rsc, current, FALSE, data_set);
 		}
+		/* 実行中のノード(current)でリソースを停止 */
 		StopRsc(rsc, current, FALSE, data_set);
+		/* 実行先のノード(next)でリソースを起動 */
 		StartRsc(rsc, next, FALSE, data_set);
 		if(rsc->next_role == RSC_ROLE_MASTER) {
+			/* リソースの次のroleがMASTERの場合は、実行先のノード(next)でリソースをPROMOTE */
 		    PromoteRsc(rsc, next, FALSE, data_set);
 		}
-
+		/* 実行先のノード(next)で実行されていない対象リソースの繰り返しアクションリストを取得する */
 		possible_matches = find_recurring_actions(rsc->actions, next);
 		slist_iter(match, action_t, possible_matches, lpc,
 			   if(match->optional == FALSE) {
 				   crm_debug("Fixing recurring action: %s",
 					     match->uuid);
+					/* 実行先ノード(next)以外の対象リソースの繰り返しアクションのoptionalをTRUEに設定する */
 				   match->optional = TRUE;
 			   }
 			);
+		/* リストを解放 */
 		g_list_free(possible_matches);
 		
 	} else if(is_set(rsc->flags, pe_rsc_start_pending)) {
+		/* 対象リソースがstart_pending(実行待ち)だった場合 */
 		start = start_action(rsc, next, TRUE);
 		if(start->runnable) {
 			/* wait for StartRsc() to be called */
@@ -1405,8 +1434,12 @@ NoRoleChange(resource_t *rsc, node_t *current, node_t *next,
 		}
 		
 	} else {
-	    
+	    /* その他の場合 */
+	    /* すでにcurrentノードで起動中、nextも同じノード（リソース移動なし）の場合も、ここで処理 */
+	    /* ※重要:リソース移動なしでも、stop,startのアクションは生成される */
+	    /* currentノードでのリソース停止アクションを生成する */
 		stop = stop_action(rsc, current, TRUE);
+	    /* nextノードでのリソース開始アクションを生成する */
 		start = start_action(rsc, next, TRUE);
 		stop->optional = start->optional;
 		if(rsc->next_role > RSC_ROLE_STARTED) {
@@ -1415,10 +1448,12 @@ NoRoleChange(resource_t *rsc, node_t *current, node_t *next,
 		StopRsc(rsc, current, start->optional, data_set);
 		StartRsc(rsc, current, start->optional, data_set);
 		if(rsc->next_role == RSC_ROLE_MASTER) {
+			/* 次の遷移roleがMASTERだった場合はPROMOTEE */
 			PromoteRsc(rsc, next, start->optional, data_set);
 		}
 		
 		if(start->runnable == FALSE) {
+			/* startアクションのrunnableがFALSEの場合は、next_roleをSTOPPEDにセット */
 			rsc->next_role = RSC_ROLE_STOPPED;
 		}
 	}
@@ -1526,7 +1561,7 @@ DemoteRsc(resource_t *rsc, node_t *next, gboolean optional, pe_working_set_t *da
 		);
 	return TRUE;
 }
-
+/* 遷移roleのエラー処理 */
 gboolean
 RoleError(resource_t *rsc, node_t *next, gboolean optional, pe_working_set_t *data_set)
 {

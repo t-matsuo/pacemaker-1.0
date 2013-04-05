@@ -77,6 +77,7 @@ group_color(resource_t *rsc, pe_working_set_t *data_set)
 		/* 子リソースのcolorを処理する */
 		node = child_rsc->cmds->color(child_rsc, data_set);
 		if(group_node == NULL) {
+			/* 子リソースの最初に見つかった配置先ノードをgroup_nodeにセットする */
 		    group_node = node;
 		}
 		);
