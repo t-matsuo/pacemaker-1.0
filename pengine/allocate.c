@@ -59,7 +59,7 @@ resource_alloc_functions_t resource_class_alloc_functions[] = {
 		group_merge_weights,
 		group_color,
 		group_create_actions,
-		native_create_probe,
+		native_create_probe,				/* groupリソースのProbe生成処理はnativeを実行 */
 		group_internal_constraints,
 		group_rsc_colocation_lh,
 		group_rsc_colocation_rh,
@@ -791,18 +791,20 @@ static void wait_for_probe(
 /*
  * Check nodes for resources started outside of the LRM
  */
+/* Probe処理 */
 gboolean
 probe_resources(pe_working_set_t *data_set)
 {
 	action_t *probe_complete = NULL;
 	action_t *probe_node_complete = NULL;
-
+	/* data_setの全てのノード情報を処理する */
 	slist_iter(
 		node, node_t, data_set->nodes, lpc,
 		gboolean force_probe = FALSE;
+		/* 対象ノードのattrsハッシュテーブルから、"probe_complete"値を取り出す */
 		const char *probed = g_hash_table_lookup(
 			node->details->attrs, CRM_OP_PROBED);
-
+		/* 対象ノードがOFFLINE、uncleanの場合は処理しない */
 		if(node->details->online == FALSE) {
 			continue;
 			
@@ -814,6 +816,7 @@ probe_resources(pe_working_set_t *data_set)
 		}
 
 		if(probed != NULL && crm_is_true(probed) == FALSE) {
+			/* "probe_complete"が取り出せない場合か、FALSE値の場合は、force_probe値をTRUEにセットする */
 			force_probe = TRUE;
 		}
 		
@@ -832,10 +835,10 @@ probe_resources(pe_working_set_t *data_set)
 		}
 		
 		order_actions(probe_node_complete, probe_complete, pe_order_runnable_left);
-		
+		/* 全てのリソース情報を処理する */
 		slist_iter(
 			rsc, resource_t, data_set->resources, lpc2,
-			
+			/* リソースのcreate_probe処理を実行する */
 			if(rsc->cmds->create_probe(
 				   rsc, node, probe_node_complete,
 				   force_probe, data_set)) {
@@ -951,9 +954,9 @@ stage5(pe_working_set_t *data_set)
 		/* リソースのcolorを処理する */
 		rsc->cmds->color(rsc, data_set);
 		);
-
+	/* Porbe処理 */
 	probe_resources(data_set);
-	
+	/* data_setに展開された全てのリソースのAction生成処理 */
 	slist_iter(
 		rsc, resource_t, data_set->resources, lpc,
 		rsc->cmds->create_actions(rsc, data_set);	

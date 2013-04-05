@@ -332,23 +332,27 @@ void group_rsc_colocation_lh(
 	}
 		
 	crm_debug_4("Processing constraints from %s", rsc_lh->id);
-
+	/* groupの固有データを取得する */
 	get_group_variant_data(group_data, rsc_lh);
 
 	if(group_data->colocated) {
+		/* groupのcolocatedがTRUEの場合、最初の子リソースのrsc指定処理を行う */
 		group_data->first_child->cmds->rsc_colocation_lh(
 			group_data->first_child, rsc_rh, constraint); 
 		return;
 
 	} else if(constraint->score >= INFINITY) {
+		/* groupのcolocatedがFALSEで、colcationのスコアがINFINITYの場合 */
+		/* colocatedがTRUEでないリソースとのcolocationは処理しないエラーを出力して処理しない */
 		crm_config_err("%s: Cannot perform manditory colocation"
 			       " between non-colocated group and %s",
 			       rsc_lh->id, rsc_rh->id);
 		return;
 	} 
-
+	/* 全てのgroupリソース(rsc指定)の子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc_lh->children, lpc,
+		/* 子リソースのrsc指定処理を実行する */
 		child_rsc->cmds->rsc_colocation_lh(
 			child_rsc, rsc_rh, constraint); 
 		);
@@ -361,6 +365,7 @@ void group_rsc_colocation_rh(
 	resource_t *rsc_lh, resource_t *rsc_rh, rsc_colocation_t *constraint)
 {
 	group_variant_data_t *group_data = NULL;
+	/* groupの固有データを取得する */
 	get_group_variant_data(group_data, rsc_rh);
 	CRM_CHECK(rsc_lh->variant == pe_native, return);
 
@@ -368,15 +373,19 @@ void group_rsc_colocation_rh(
 	print_resource(LOG_DEBUG_3, "LHS", rsc_lh, TRUE);
 
 	if(is_set(rsc_rh->flags, pe_rsc_provisional)) {
+		/* pe_rsc_provisionalがセットされている場合は処理しない */
 		return;
 	
 	} else if(group_data->colocated && group_data->first_child) {
+		/* groupのcolocatedがTRUEで、gorupリソースの最初の子リソースが存在する場合(子リソースがないgroupではない) */
 		if(constraint->score >= INFINITY) {
 		    /* Ensure RHS is _fully_ up before can start LHS */
+		    /* colocationのスコアがINFINITYの場合は、最後の子リソースのwith-rscを処理する */
 		    group_data->last_child->cmds->rsc_colocation_rh(
 			rsc_lh, group_data->last_child, constraint);
 		} else {
 		    /* A partially active RHS is fine */
+		    /* colocationのスコアがINFINITY以外の場合は、最初の子リソースのwith-rscを処理する */
 		    group_data->first_child->cmds->rsc_colocation_rh(
 			rsc_lh, group_data->first_child, constraint); 
 		}
@@ -384,13 +393,16 @@ void group_rsc_colocation_rh(
 		return;
 
 	} else if(constraint->score >= INFINITY) {
+		/* groupのcolocatedがFALSEか、groupの最初の子リソースが存在しない場合 */
+		/* colocatedがTRUEでないリソースとのcolocationは処理しないエラーを出力して処理しない */
 		crm_config_err("%s: Cannot perform manditory colocation with"
 			       " non-colocated group: %s", rsc_lh->id, rsc_rh->id);
 		return;
 	} 
-
+	/* 全てのgroupリソース(with-rsc指定)の子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc_rh->children, lpc,
+		/* 子リソースのwith-rsc指定処理を実行する */
 		child_rsc->cmds->rsc_colocation_rh(
 			rsc_lh, child_rsc, constraint); 
 		);
