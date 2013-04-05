@@ -530,7 +530,7 @@ void group_rsc_location(resource_t *rsc, rsc_to_node_t *constraint)
 	constraint->node_list_rh = saved;
 	pe_free_shallow_adv(zero, TRUE);
 }
-
+/* groupリソースのexpand処理 */
 void group_expand(resource_t *rsc, pe_working_set_t *data_set)
 {
 	group_variant_data_t *group_data = NULL;
@@ -539,11 +539,12 @@ void group_expand(resource_t *rsc, pe_working_set_t *data_set)
 	crm_debug_3("Processing actions from %s", rsc->id);
 
 	CRM_CHECK(rsc != NULL, return);
+	/* groupリソース自体をnative_expand()処理する */
 	native_expand(rsc, data_set);
-	
+	/* 対処groupリソースの全ての子リソースを処理する */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
-
+	    /*_ 子リソースのexpand処理を実行する */
 		child_rsc->cmds->expand(child_rsc, data_set);
 		);
 

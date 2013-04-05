@@ -764,8 +764,9 @@ graph_element_from_action(action_t *action, pe_working_set_t *data_set)
 	if(synapse_priority > 0) {
 		crm_xml_add_int(syn, XML_CIB_ATTR_PRIORITY, synapse_priority);
 	}
-	
+	/* 対象action情報をxml化 */
 	xml_action = action2xml(action, FALSE);
+	/* "action_set"にxml化したaction情報をセットする */
 	add_node_nocopy(set, crm_element_name(xml_action), xml_action);
 
 	action->actions_before = g_list_sort(

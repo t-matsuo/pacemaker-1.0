@@ -104,7 +104,7 @@ resource_alloc_functions_t resource_class_alloc_functions[] = {
 		master_append_meta,
 	}
 };
-
+/* lrm_resourceタグのtype, class, provierに変更がないかどうかチェックする */
 static gboolean
 check_rsc_parameters(resource_t *rsc, node_t *node, xmlNode *rsc_entry,
 		     pe_working_set_t *data_set) 
@@ -120,29 +120,39 @@ check_rsc_parameters(resource_t *rsc, node_t *node, xmlNode *rsc_entry,
 		XML_AGENT_ATTR_CLASS,
  		XML_AGENT_ATTR_PROVIDER
 	};
-
+	/* type, class, provierで処理する */
 	for(; attr_lpc < DIMOF(attr_list); attr_lpc++) {
+		/* リソース情報のxmlから対象エレメントを取り出す */
 		value = crm_element_value(rsc->xml, attr_list[attr_lpc]);
+		/* lrmタグ内のlrm_resources内のlrm_resource子タグのxmlから、対象エレメントを取り出す */
 		old_value = crm_element_value(rsc_entry, attr_list[attr_lpc]);
 		if(value == old_value /* ie. NULL */
 		   || crm_str_eq(value, old_value, TRUE)) {
+			/* 値が同じ場合は処理しない */
 			continue;
 		}
 		
 		force_restart = TRUE;
+		/* リスタートのNoticeログを出力 */
 		crm_notice("Forcing restart of %s on %s, %s changed: %s -> %s",
 			   rsc->id, node->details->uname, attr_list[attr_lpc],
 			   crm_str(old_value), crm_str(value));
 	}
 	if(force_restart) {
 		/* make sure the restart happens */
+		/* make sure the restart happens */
+		/* 値が変わっている場合は、状態遷移作業エリアのアクション情報リスト(data_set->actions)と、*/
+		/* このリソースのアクション情報リスト(rsc->actions)にこのリソースのStopアクションを追加する */
 		stop_action(rsc, node, FALSE);
+		/* リソース情報のpe_rsc_start_pendingフラグをセットする */
 		set_bit(rsc->flags, pe_rsc_start_pending);
+		/* 戻り値をTRUEにセットする */
 		delete_resource = TRUE;
 	}
 	return delete_resource;
 }
-
+/* 対象リソースの対象実行オペレーションのキャンセル処理 */
+/* ※cancelアクションを生成して、stopアクションとのORDERをセット */
 static void CancelXmlOp(resource_t *rsc, xmlNode *xml_op, node_t *active_node,
 			const char *reason, pe_working_set_t *data_set) 
 {
@@ -157,35 +167,42 @@ static void CancelXmlOp(resource_t *rsc, xmlNode *xml_op, node_t *active_node,
     
     CRM_CHECK(xml_op != NULL, return);
     CRM_CHECK(active_node != NULL, return);
-
+	/* 対象lrm_rsc_opタグのoperationエレメントを取り出す */
     task = crm_element_value(xml_op, XML_LRM_ATTR_TASK);
+   	/* lrm_rsc_opタグのcall-idエレメントを取り出す */
     call_id = crm_element_value(xml_op, XML_LRM_ATTR_CALLID);
+   	/* lrm_rsc_opタグのcrm_feature_setエレメントを取り出す */
     op_version = crm_element_value(xml_op, XML_ATTR_CRM_VERSION);
+   	/* lrm_rsc_opタグのintervalエレメントを取り出す */
     interval_s = crm_element_value(xml_op, XML_LRM_ATTR_INTERVAL);
-    
+    /* 取り出したintervalエレメントを数値化する */
     interval = crm_parse_int(interval_s, "0");
 
     /* we need to reconstruct the key because of the way we used to construct resource IDs */
+    /* リソース情報のid,取り出したtask,intervalからキーを生成する */    
     key = generate_op_key(rsc->id, task, interval);
     
     crm_info("Action %s on %s will be stopped: %s",
 	     key, active_node->details->uname, reason?reason:"unknown");
-
+	/* CANCELのアクションを生成する(状態遷移作業エリア、対象リソースのアクション情報リストにも保存) */
     cancel = custom_action(rsc, crm_strdup(key), RSC_CANCEL,
 			   active_node, FALSE, TRUE, data_set);
 
     crm_free(cancel->task);
+    /* 生成したCANCELアクションのtaskをセット */
     cancel->task = crm_strdup(RSC_CANCEL);
-    
+    /* 生成したCANCELアクションのmetaハッシュテーブルをセット(task,call_id,interval) */
     add_hash_param(cancel->meta, XML_LRM_ATTR_TASK,     task);
     add_hash_param(cancel->meta, XML_LRM_ATTR_CALLID,   call_id);
     add_hash_param(cancel->meta, XML_LRM_ATTR_INTERVAL, interval_s);
-    
+    /* リソースのstopアクションと生成したCANCELアクションのORDER情報を生成 */
+	/* 態遷移作業エリアのordering_constraintsリストに生成したエリアを追加される */
     custom_action_order(rsc, stop_key(rsc), NULL,
 			rsc, NULL, cancel, pe_order_optional, data_set);
     crm_free(key); key = NULL;
 }
-
+/* lrm_rsc_opタグの情報から、実行が完了していないアクション(再実行だけではないか？)、停止するべきアクションを判断して */
+/* アクション情報に追加する */
 static gboolean
 check_action_definition(resource_t *rsc, node_t *active_node, xmlNode *xml_op,
 			pe_working_set_t *data_set)
@@ -208,7 +225,9 @@ check_action_definition(resource_t *rsc, node_t *active_node, xmlNode *xml_op,
 	char *digest_restart_calc = NULL;
 
 	action_t *action = NULL;
+	/* lrm_rsc_opタグのoperationエレメントを取り出す */
 	const char *task = crm_element_value(xml_op, XML_LRM_ATTR_TASK);
+	/* lrm_rsc_opタグのcrm_feature_setエレメントを取り出す */
 	const char *op_version = crm_element_value(xml_op, XML_ATTR_CRM_VERSION);
 
 	CRM_CHECK(active_node != NULL, return FALSE);
@@ -216,48 +235,68 @@ check_action_definition(resource_t *rsc, node_t *active_node, xmlNode *xml_op,
 	return FALSE;
     }
     
+	/* lrm_rsc_opタグのintervalエレメントを取り出す */
 	interval_s = crm_element_value(xml_op, XML_LRM_ATTR_INTERVAL);
+	/* intevalエレメントを数値化する */
 	interval = crm_parse_int(interval_s, "0");
 	/* we need to reconstruct the key because of the way we used to construct resource IDs */
+	/* リソース情報のidとoperationエレメントとintervalエレメントでキーを作成する */
 	key = generate_op_key(rsc->id, task, interval);
 
 	if(interval > 0) {
+		/* intervalエレメントが０以上の場合(monitorの場合) */
 		xmlNode *op_match = NULL;
-
+		/* このリソース情報内のops_xmlの全ての"op"情報から、生成したキーのオペレーション情報で */
+		/* enabled=TRUEでintervalが０以上のopを検索する */
 		crm_debug_2("Checking parameters for %s", key);
 		op_match = find_rsc_op_entry(rsc, key);
 
 		if(op_match == NULL && is_set(data_set->flags, pe_flag_stop_action_orphans)) {
-			CancelXmlOp(rsc, xml_op, active_node, "orphan", data_set);
+			/* 存在しない場合のキー(オペレーション)で、状態遷移作業エリアのpe_flag_stop_action_orphansがたっている場合 */
+			/* このノードのオペレーションのキャンセルアクションとorderをセットする */
+			/* ※このリソース情報の"op"情報には存在しないが、stop-orphan-actionsがTRUEになっている場合は、 */
+			/*   lrm_rsc_opに残っているこの操作をキャンセルする */
+			/* monitorオペレーションのop属性変更のキャンセルはここで実施されることになるので注意 */			CancelXmlOp(rsc, xml_op, active_node, "orphan", data_set);
 			crm_free(key);
 			return TRUE;
 
 		} else if(op_match == NULL) {
+			/* その他の場合で、存在しない場合のキー(オペレーション)の場合 */
+			/* ※このリソース情報の"op"情報には存在しないので処理しない */
 			crm_debug("Orphan action detected: %s on %s",
 				  key, active_node->details->uname);
 			crm_free(key);
 			return TRUE;
 		}
 	}
-
+	/* intevarlが0(start,stopなど)か、intervalが０以上(通常はmonitor)でリソースに存在するオペレーションの場合 */
+	
+	/* このlrm_rsc_opタグに対応するアクションを生成する */
+	/* ※ただし、ここでは、アクション情報は生成するが、
+		状態遷移作業エリアのactionsリストと、対象リソースのactionsリストには
+		アクションは保存されないので注意
+	   ※また、このactionはあくまでも、params_allにデータを取得するためだけに使われている
+	 */
 	action = custom_action(rsc, key, task, active_node, TRUE, FALSE, data_set);
 	/* key is free'd by custom_action() */
-	
+	/* local_rsc_paramsハッシュテーブルを生成する */
 	local_rsc_params = g_hash_table_new_full(
 		g_str_hash, g_str_equal,
 		g_hash_destroy_str, g_hash_destroy_str);
-	
+	/* local_rsc_paramsハッシュテーブルにattributesをセットする */
 	get_rsc_attributes(local_rsc_params, rsc, active_node, data_set);
-	
+	/* parametersのXMLノードを生成する */
 	params_all = create_xml_node(NULL, XML_TAG_PARAMS);
+	/* parametersのXMLノードにデータをセットする */
 	g_hash_table_foreach(local_rsc_params, hash2field, params_all);
 	g_hash_table_foreach(action->extra, hash2field, params_all);
 	g_hash_table_foreach(rsc->parameters, hash2field, params_all);
 	g_hash_table_foreach(action->meta, hash2metafield, params_all);
 
 	filter_action_parameters(params_all, op_version);
-	digest_all_calc = calculate_xml_digest(params_all, TRUE, FALSE);
-	digest_all = crm_element_value(xml_op, XML_LRM_ATTR_OP_DIGEST);
+	digest_all_calc = calculate_xml_digest(params_all, TRUE, FALSE); /* 今回の対象オペレーションで決定されたダイジェスト */
+	/* lrm_rsc_opタグのop-digest, op-restart-digest, op-force-restartを取り出す */
+	digest_all = crm_element_value(xml_op, XML_LRM_ATTR_OP_DIGEST); /* 以前の対象オペレーションで決定されたダイジェスト */
 	digest_restart = crm_element_value(xml_op, XML_LRM_ATTR_RESTART_DIGEST);
 	restart_list = crm_element_value(xml_op, XML_LRM_ATTR_OP_RESTART);
 
@@ -268,6 +307,7 @@ check_action_definition(resource_t *rsc, node_t *active_node, xmlNode *xml_op,
     
     if(digest_restart) {
 	/* Changes that force a restart */
+		/* op-restart-digestが取り出せた場合 */
 		params_restart = copy_xml(params_all);
 		if(restart_list) {
 			filter_reload_parameters(params_restart, restart_list);
@@ -289,7 +329,10 @@ check_action_definition(resource_t *rsc, node_t *active_node, xmlNode *xml_op,
 	}
 
 	if(safe_str_neq(digest_all_calc, digest_all)) {
-	/* Changes that can potentially be handled by a reload */
+		/* 対象オペレーショの今回の計算したdigest_all_calcと、lrm_rsc_opタグのop-digestが違う場合 */
+		/* ※以前の実行パラメータ（ダイジェストと）変わった場合 */
+		/* ※違いがないオペレーションは対象外なので注意 */
+		/* Changes that can potentially be handled by a reload */
 		did_change = TRUE;
 		crm_log_xml_info(params_all, "params:reload");
 		key = generate_op_key(rsc->id, task, interval);
@@ -306,12 +349,16 @@ check_action_definition(resource_t *rsc, node_t *active_node, xmlNode *xml_op,
 	    update_action_flags(op, pe_action_allow_reload_conversion);
 #else
 	    /* Re-sending the recurring op is sufficient - the old one will be cancelled automatically */
+		/* intervalが０以上(通常はmonitor)の場合 */
+		/* startアクションと、作成したアクションのrsc_orderのアクション(ORDER)情報を生成する */
+		/* 態遷移作業エリアのordering_constraintsリストに生成したエリアを追加される */
 	    op = custom_action(rsc, key, task, NULL, FALSE, TRUE, data_set);
 	    custom_action_order(rsc, start_key(rsc), NULL,
 				NULL, NULL, op, pe_order_runnable_left, data_set);
 #endif
 	    
 	} else if(digest_restart) {
+		/* op-restart-digestが取り出せた場合 */
 	    crm_debug_2("Reloading '%s' action for resource %s", task, rsc->id);
 
             /* Allow this resource to reload - unless something else causes a full restart */
@@ -383,36 +430,50 @@ check_actions_for(xmlNode *rsc_entry, resource_t *rsc, node_t *node, pe_working_
 		/* 作業リストに"lrm_rsc_op"の内容を追加する */
 		op_list = g_list_append(op_list, rsc_op);
 		);
-
+	/* 生成したop_listリストをcallidでソートする */
 	sorted_op_list = g_list_sort(op_list, sort_op_by_callid);
+	/* lrm_resourceタグ内のlrm_rsc_opタグのソートリストから、start処理とstop処理のindexを取得する */
 	calculate_active_ops(sorted_op_list, &start_index, &stop_index);
-
+	/* sorted_op_listを全て処理する */
 	slist_iter(
 		rsc_op, xmlNode, sorted_op_list, lpc,
 
 		if(start_index < stop_index) {
 			/* stopped */
+			/* STOP処理がすでに完了してい場合は、lrm_rsc_opは処理しない */
 			continue;
 		} else if(lpc < start_index) {
 			/* action occurred prior to a start */
+			/* START処理よりも前の処理（もしくは、rc=0かrc=8のstopより前の処理)も、lrm_rsc_opは処理しない */
 			continue;
 		}
-		
+		/* lrm_rsc_opのidを取り出す */
 		id   = ID(rsc_op);
 		is_probe = FALSE;
+		/* lrm_rsc_opのoperationエレメントを取り出す */
 		task = crm_element_value(rsc_op, XML_LRM_ATTR_TASK);
-
+		/* lrm_rsc_opのintervalエレメントを取り出し、数値化する */
 		interval_s = crm_element_value(rsc_op, XML_LRM_ATTR_INTERVAL);
 		interval = crm_parse_int(interval_s, "0");
 		
 		if(interval == 0 && safe_str_eq(task, RSC_STATUS)) {
+			/* intevalが0で、operationエレメントが"monitor"の場合 */
+			/* is_probeをTRUEにセットする */
+			/* ※Probeは完了していると判断する */
 			is_probe = TRUE;
 		}
 
 		if(interval > 0 && is_set(data_set->flags, pe_flag_maintenance_mode)) {
+			/* intevalが0以上で、状態遷移作業エリアのpe_flag_maintenance_modeフラグがセットされている場合 */
+			/* ※メンテナンスモードになっている場合 */
+			/* このノードのモニターキャンセルアクションとorderをセットする */
 			CancelXmlOp(rsc, rsc_op, node, "maintenance mode", data_set);
 
 		} else if(is_probe || safe_str_eq(task, RSC_START) || interval > 0) {
+			/* Probeが完了しているか */
+			/* operationエレメントがstartか */
+			/* intervalエレメントが０以上の場合(通常monitorが対象) */
+			/* lrm_rsc_opタグの情報から実行するべきアクション、停止するべきアクションなどを処理する */
 			check_action_definition(rsc, node, rsc_op, data_set);
 		}
 		);
@@ -819,7 +880,7 @@ probe_resources(pe_working_set_t *data_set)
 			/* "probe_complete"が取り出せない場合か、FALSE値の場合は、force_probe値をTRUEにセットする */
 			force_probe = TRUE;
 		}
-		
+		/* probe_node_completeアクションを生成する */
 		probe_node_complete = custom_action(
 			NULL, crm_strdup(CRM_OP_PROBED),
 			CRM_OP_PROBED, node, FALSE, TRUE, data_set);
@@ -829,28 +890,29 @@ probe_resources(pe_working_set_t *data_set)
 			       XML_ATTR_TE_NOWAIT, XML_BOOLEAN_TRUE);
 
 		if(node->details->pending) {
+			/* 対象ノードがpending状態の場合は、probe_node_completeを非実行(runnable=FALSE)に設定する */
 		    probe_node_complete->runnable = FALSE;
 		    crm_info("Action %s on %s is unrunnable (pending)",
 			     probe_node_complete->uuid, probe_node_complete->node->details->uname);
 		}
-		
+		/* probe_node_completeとprobe_completeのorderを生成する */
 		order_actions(probe_node_complete, probe_complete, pe_order_runnable_left);
 		/* 全てのリソース情報を処理する */
 		slist_iter(
 			rsc, resource_t, data_set->resources, lpc2,
-			/* リソースのcreate_probe処理を実行する */
+			/* 対象リソースのcreate_probe処理を実行する */
 			if(rsc->cmds->create_probe(
 				   rsc, node, probe_node_complete,
 				   force_probe, data_set)) {
-
+				/* 対象リソースのcreate_probe処理でProbeアクションが生成された場合(create_probe()がTRUE) */
 				probe_complete->optional = FALSE;
 				probe_node_complete->optional = FALSE;
-
+				/* probe_completeアクションと対象リソースのstartアクションとのorderを生成する */
 				custom_action_order(
 					NULL, NULL, probe_complete,
 					rsc, start_key(rsc), NULL,
 					pe_order_optional, data_set);
-
+				/* probe_completeアクションと対象リソースのstopアクションとのorderを生成する */
 				custom_action_order(
 					NULL, NULL, probe_complete,
 					rsc, stop_key(rsc), NULL,
@@ -1782,25 +1844,25 @@ stage8(pe_working_set_t *data_set)
 	
 	return TRUE;
 }
-
+/* 状態遷移作業エリアの確保済みエリアを解放する		*/
 void
 cleanup_alloc_calculations(pe_working_set_t *data_set)
 {
 	if(data_set == NULL) {
 		return;
 	}
-
+	/* order情報リストを解放する	*/	
 	crm_debug_3("deleting order cons: %p", data_set->ordering_constraints);
 	pe_free_ordering(data_set->ordering_constraints);
 	data_set->ordering_constraints = NULL;
-	
+	/* location情報リストを解放する	*/	
 	crm_debug_3("deleting node cons: %p", data_set->placement_constraints);
 	pe_free_rsc_to_node(data_set->placement_constraints);
 	data_set->placement_constraints = NULL;
-
+	/* colocation情報リストを解放する	*/
 	crm_debug_3("deleting inter-resource cons: %p", data_set->colocation_constraints);
   	pe_free_shallow(data_set->colocation_constraints);
 	data_set->colocation_constraints = NULL;
-	
+	/* その他のエリアを解放する */
 	cleanup_calculations(data_set);
 }

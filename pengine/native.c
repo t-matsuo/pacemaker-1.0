@@ -1211,21 +1211,21 @@ void native_rsc_location(resource_t *rsc, rsc_to_node_t *constraint)
 		   crm_debug_3("%s + %s : %d", rsc->id, node->details->uname, node->weight);
 		);
 }
-
+/* nativeリソースのexpand処理 */
 void native_expand(resource_t *rsc, pe_working_set_t *data_set)
 {
 	crm_debug_3("Processing actions from %s", rsc->id);
-
+	/* 対象リソースの全てのactions情報を処理する */
 	slist_iter(
 		action, action_t, rsc->actions, lpc,
 		crm_debug_4("processing action %d for rsc=%s",
 			  action->id, rsc->id);
 		graph_element_from_action(action, data_set);
 		);
-
+	/* 対処リソースの全ての子リソースを処理する */
 	slist_iter(
 	    child_rsc, resource_t, rsc->children, lpc,
-	    
+	    /*_ 子リソースのexpand処理を実行する */
 	    child_rsc->cmds->expand(child_rsc, data_set);
 	    );
 }
