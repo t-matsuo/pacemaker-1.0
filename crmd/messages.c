@@ -659,7 +659,7 @@ crmd_authorize_message(xmlNode *client_msg, crmd_client_t *curr_client)
 	/* hello messages should never be processed further */
 	return FALSE;
 }
-
+/* メッセージハンドラ */
 enum crmd_fsa_input
 handle_message(xmlNode *msg)
 {
@@ -668,9 +668,11 @@ handle_message(xmlNode *msg)
     
     type = crm_element_value(msg, F_CRM_MSG_TYPE);
     if(crm_str_eq(type, XML_ATTR_REQUEST, TRUE)) {
+		/* リクエストメッセージの場合 */
 	return handle_request(msg);
 	
     } else if(crm_str_eq(type, XML_ATTR_RESPONSE, TRUE)) {
+		/* 応答メッセージの場合 */
 	handle_response(msg);
 	return I_NULL;
     }
@@ -678,7 +680,7 @@ handle_message(xmlNode *msg)
     crm_err("Unknown message type: %s", type);
     return I_NULL;
 }
-
+/* リクエストメッセージハンドラ */
 enum crmd_fsa_input
 handle_request(xmlNode *stored_msg)
 {
@@ -846,7 +848,7 @@ handle_request(xmlNode *stored_msg)
 
     return I_NULL;
 }
-
+/* 応答メッセージハンドラ */
 void
 handle_response(xmlNode *stored_msg)
 {
@@ -856,18 +858,24 @@ handle_response(xmlNode *stored_msg)
 	crm_log_xml(LOG_ERR, "Bad message", stored_msg);
 
     } else if(AM_I_DC && strcmp(op, CRM_OP_PECALC) == 0) {
+		/* pengineからの状態遷移算出応答の場合 */
 	/* Check if the PE answer been superceeded by a subsequent request? */ 
 	const char *msg_ref = crm_element_value(stored_msg, XML_ATTR_REFERENCE);
 	if(msg_ref == NULL) {
+		/* pengineからの応答REFERENCEコードが設定されていない場合は、エラー */
 	    crm_err("%s - Ignoring calculation with no reference", op);
 
 	} else if(safe_str_eq(msg_ref, fsa_pe_ref)) {
+		/* 状態遷移算出依頼(CRMD->pengine)時のREFERENCEコードと、pengineからの応答REFERENCEコード */
+		/* が一致した場合 */
 	    ha_msg_input_t fsa_input;
 	    fsa_input.msg = stored_msg;
 	    register_fsa_input_later(C_IPC_MESSAGE, I_PE_SUCCESS, &fsa_input);			
 	    crm_debug_2("Completed: %s...", fsa_pe_ref);
 
 	} else {
+		/* 状態遷移算出依頼(CRMD->pengine)時のREFERENCEコードと、pengineからの応答REFERENCEコード */
+		/* が一致しない場合は、古い算出応答としてログ出力し、処理しない */
 	    crm_info("%s calculation %s is obsolete", op, msg_ref);
 	}
 		
