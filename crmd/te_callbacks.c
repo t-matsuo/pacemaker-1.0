@@ -296,7 +296,7 @@ te_update_diff(const char *event, xmlNode *msg)
 	    xmlXPathFreeObject(xpathObj);
 	}
 }
-
+/* TEメッセージ処理 */
 gboolean
 process_te_message(xmlNode *msg, xmlNode *xml_data)
 {
