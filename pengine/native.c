@@ -730,7 +730,7 @@ void native_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 	    /* -- 通常、展開直後（故障など発生していない)で起動していないリソースはnext_roleはUNKNOWNである -- */
 	    rsc->next_role = RSC_ROLE_STARTED;
 	} else if(rsc->next_role == RSC_ROLE_UNKNOWN) {
-		/* 上記以外の場合は、next_roleをSTOPPEDにセット */
+		/* 上記以外の場合でnext_roleがRSC_ROLE_UNKNOWNの場合は、next_roleをSTOPPEDにセット */
 	    rsc->next_role = RSC_ROLE_STOPPED;
 	}
 

@@ -221,6 +221,7 @@ te_graph_trigger(gpointer user_data)
     }
     
     if(transition_graph->complete == FALSE) {
+		/* graphが完了していない場合は、グラフ実行 */
 	graph_rc = run_graph(transition_graph);
 	print_graph(LOG_DEBUG_3, transition_graph);
 

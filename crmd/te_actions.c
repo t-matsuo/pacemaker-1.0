@@ -408,7 +408,7 @@ cib_action_update(crm_action_t *action, int status, int op_rc)
 	return TRUE;
 }
 
-
+/* graph : リソース処理(LRMDへ依頼) */
 static gboolean
 te_rsc_command(crm_graph_t *graph, crm_action_t *action) 
 {
@@ -482,10 +482,11 @@ te_rsc_command(crm_graph_t *graph, crm_action_t *action)
 		.actions = A_LRM_INVOKE,
 		.origin = __FUNCTION__,
 	    };
-
+		/* LRM処理実行(リソース操作の実行) */
 	    do_lrm_invoke(A_LRM_INVOKE, C_FSA_INTERNAL, fsa_state, I_NULL, &msg);
 
 	} else {
+		/* クラスターメッセージで、lrmdへ処理(リソース操作の実行)を依頼 */
 	    rc = send_cluster_message(on_node, crm_msg_lrmd, cmd, TRUE);
 	}
 	
@@ -500,6 +501,7 @@ te_rsc_command(crm_graph_t *graph, crm_action_t *action)
 	} else if(no_wait) {
 		action->confirmed = TRUE;
 		update_graph(transition_graph, action);
+		/* 待ちがない場合は、トリガーを叩く */
 		trigger_graph();
 
 	} else {
@@ -520,7 +522,7 @@ te_rsc_command(crm_graph_t *graph, crm_action_t *action)
 	
 	return TRUE;
 }
-
+/* grap処理 */
 crm_graph_functions_t te_graph_fns = {
 	te_pseudo_action,
 	te_rsc_command,

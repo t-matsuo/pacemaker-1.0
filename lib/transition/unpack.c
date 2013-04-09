@@ -86,7 +86,7 @@ unpack_action(synapse_t *parent, xmlNode *xml_action)
 
 	return action;
 }
-
+/* シナプス展開処理 */
 static synapse_t *
 unpack_synapse(crm_graph_t *new_graph, xmlNode *xml_synapse) 
 {
@@ -159,7 +159,7 @@ unpack_synapse(crm_graph_t *new_graph, xmlNode *xml_synapse)
 		);
 	return new_synapse;
 }
-
+/* graphの展開処理 */
 crm_graph_t *
 unpack_graph(xmlNode *xml_graph, const char *reference)
 {
@@ -211,12 +211,13 @@ unpack_graph(xmlNode *xml_graph, const char *reference)
 		t_id = crm_element_value(xml_graph, "batch-limit");
 		new_graph->batch_limit = crm_parse_int(t_id, "0");
 	}
-	
+	/* 全てのgraphのシナプスを処理する */
 	xml_child_iter_filter(
 		xml_graph, synapse, "synapse",
-		
+		/* シナプス展開処理 */
 		synapse_t *new_synapse = unpack_synapse(new_graph, synapse);
 		if(new_synapse != NULL) {
+			/* グラフ展開エリアのシナプスリストに展開したシナプスを追加する */
 			new_graph->synapses = g_list_append(
 				new_graph->synapses, new_synapse);
 		}

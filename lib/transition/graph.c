@@ -127,7 +127,7 @@ update_graph(crm_graph_t *graph, crm_action_t *action)
 	return updates;
 }
 
-
+/* 対象シナプスが実行可能かどうか（依存するシナプスが完了しているかどうか）をチェックする */
 static gboolean
 should_fire_synapse(synapse_t *synapse)
 {
@@ -136,7 +136,7 @@ should_fire_synapse(synapse_t *synapse)
 	
 	crm_debug_3("Checking pre-reqs for %d", synapse->id);
 	/* lookup prereqs */
-	synapse->ready = TRUE;
+	synapse->ready = TRUE;	/* シナプスを実行可能にセット */
 	slist_iter(
 		prereq, crm_action_t, synapse->inputs, lpc,
 		
@@ -144,15 +144,15 @@ should_fire_synapse(synapse_t *synapse)
 		if(prereq->confirmed == FALSE) {
 			crm_debug_3("Inputs for synapse %d not satisfied",
 				    synapse->id);
-			synapse->ready = FALSE;
+			synapse->ready = FALSE;	/* シナプスは実行不可 */
 			break;
 		}
 		);
 
-	return synapse->ready;
+	return synapse->ready; /* 実行フラグを返却 */
 }
 
-
+/* アクション実行処理 */
 static gboolean
 initiate_action(crm_graph_t *graph, crm_action_t *action) 
 {
@@ -191,7 +191,7 @@ initiate_action(crm_graph_t *graph, crm_action_t *action)
 		      crm_element_name(action->xml), id);
 	return FALSE;
 }
-
+/* シナプスを実行 */
 static gboolean
 fire_synapse(crm_graph_t *graph, synapse_t *synapse) 
 {
@@ -208,6 +208,7 @@ fire_synapse(crm_graph_t *graph, synapse_t *synapse)
 		gboolean passed = FALSE;
 
 		/* Invoke the action and start the timer */
+		/* アクション実行処理 */
 		passed = initiate_action(graph, action);
 		if(passed == FALSE) {
 			crm_err("Failed initiating <%s id=%d> in synapse %d",
@@ -222,7 +223,7 @@ fire_synapse(crm_graph_t *graph, synapse_t *synapse)
 	
 	return TRUE;
 }
-
+/* グラフ実行処理 */
 int
 run_graph(crm_graph_t *graph) 
 {
@@ -246,6 +247,7 @@ run_graph(crm_graph_t *graph)
 	crm_debug_2("Entering graph %d callback", graph->id);
 
 	/* Pre-calculate the number of completed and in-flight operations */
+	/* 現在のグラフの実行状況ー処理済み、ペンディングをカウントする */
 	slist_iter(
 		synapse, synapse_t, graph->synapses, lpc,
 		if (synapse->confirmed) {
@@ -259,9 +261,10 @@ run_graph(crm_graph_t *graph)
 	    );
 
 	/* Now check if there is work to do */
+	/* 現在のグラフの全てのシナプスを処理する */
 	slist_iter(
 		synapse, synapse_t, graph->synapses, lpc,
-
+		/* bach_limitが0以上で、ペンディング処理がbach_limit以上の場合は、グラフ実行を中断 */
 		if(graph->batch_limit > 0 && graph->pending >= graph->batch_limit) {
 		    crm_debug("Throttling output: batch limit (%d) reached",
 			      graph->batch_limit);
@@ -281,8 +284,11 @@ run_graph(crm_graph_t *graph)
 		    graph->skipped++;
 			
 		} else if(should_fire_synapse(synapse)) {
+			/* シナプスが実行可能か判断して実行可能な場合 */
 		    crm_debug_2("Synapse %d fired", synapse->id);
+		    /* 実行カウントをアップ */
 		    graph->fired++;
+		    /* シナプスを実行する */
 		    CRM_CHECK(fire_synapse(graph, synapse),
 			      stat_log_level = LOG_ERR;
 			      graph->abort_priority = INFINITY;
@@ -290,23 +296,29 @@ run_graph(crm_graph_t *graph)
 			      graph->fired--);
 		    
 		    if (synapse->confirmed == FALSE) {
+				/* ペンディングカウントをアップ */
 			graph->pending++;
 		    }
 		    
 		} else {
 		    crm_debug_2("Synapse %d cannot fire", synapse->id);
+		    /* 未実行カウントをアップ */
 		    graph->incomplete++;
 		}
 		
 		);
-
+	/* １回のここまでのグラフループ処理で、全てのシナプスで実行可能なものは実行されるか */
+	/* batch_limitに達したことになる */
 	if(graph->pending == 0 && graph->fired == 0) {
+		/* 全てのグラフ処理を終えて、ペンディングカウントが０、実行カウントが０の場合は */
+		/* グラフは"Complete" */
 		graph->complete = TRUE;
 		stat_log_level = LOG_NOTICE;
 		pass_result = transition_complete;
 		status = "Complete";
 
 		if(graph->incomplete != 0 && graph->abort_priority <= 0) {
+			/* 未実行シナプスがあって、グラフ実行を中断(abort_priority)された場合は、グラフは"Terminated" */
 			stat_log_level = LOG_WARNING;
 			pass_result = transition_terminated;
 			status = "Terminated";
@@ -318,7 +330,7 @@ run_graph(crm_graph_t *graph)
 	} else if(graph->fired == 0) {
 		pass_result = transition_pending;
 	}
-	
+	/* １回のグラフ処理の結果をログ出力 */
 	do_crm_log(stat_log_level+1,
 		   "====================================================");
 	do_crm_log(stat_log_level,

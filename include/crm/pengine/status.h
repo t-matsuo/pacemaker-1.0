@@ -206,7 +206,9 @@ struct resource_s {
 
 		enum rsc_role_e role;		/* 現在のrole */
 		enum rsc_role_e next_role;	/* 次の遷移role */
-
+		/* リソース情報展開時は、初期値 role:STOPPED, next_role:UNKNOWN */
+		/* リソース状態展開から設定 */
+		/* リソースアクション実行時に変更 */
 		GHashTable *meta;			/* リソースのmeta情報のハッシュテーブル */	   
 		GHashTable *parameters;		/* リソースのparameter情報のハッシュテーブル	*/
 

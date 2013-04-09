@@ -146,7 +146,7 @@ do_te_control(long long action,
     
     if(init_ok) {
 	mainloop_set_trigger(stonith_reconnect);
-
+	/* graph処理をセットする */
 	set_graph_functions(&te_graph_fns);
 
 	if(transition_graph) {

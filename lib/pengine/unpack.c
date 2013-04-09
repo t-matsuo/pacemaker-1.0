@@ -1702,6 +1702,7 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 	if(task_status_i == LRM_OP_ERROR
 	   || task_status_i == LRM_OP_TIMEOUT
 	   || task_status_i == LRM_OP_NOTSUPPORTED) {
+	    /* エラー、タイムアウト、NOTSUPPPORTED 終了オペレーションの場合 */
 	    action = custom_action(rsc, crm_strdup(id), task, NULL, TRUE, FALSE, data_set);
 	    if(expired) {
 		crm_notice("Ignoring expired failure (calculated) %s (rc=%d, magic=%s) on %s",
@@ -1709,13 +1710,14 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 		goto done;
 
 	    } else if(action->on_fail == action_fail_ignore) {
+			/* on-fail="ignore"野場合は、終了オペレーションをOP_DONEに変更してエラーを無視 */
 		crm_warn("Remapping %s (rc=%d) on %s to DONE: ignore",
 			 id, actual_rc_i, node->details->uname);
 		task_status_i = LRM_OP_DONE;
 	    set_bit(rsc->flags, pe_rsc_failure_ignored);
-
 	    crm_xml_add(xml_op, XML_ATTR_UNAME, node->details->uname);
 	    if ((node->details->shutdown == FALSE) || (node->details->online == TRUE)) {
+			/* 無視するが、故障情報には故障操作を追加セット(crm_monなどではこの故障情報を表示) */
 		add_node_copy(data_set->failed, xml_op);
 	    }
 	    } 
@@ -1825,6 +1827,8 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 				
 			} else if(compare_version("2.0", op_version) > 0
 				  && safe_str_eq(task, CRMD_ACTION_START)) {
+				/* "crm_feature_set"が2.0までのstar故障の場合は、 */
+				/* 故障リソースの配置不可(-INFINITY)内部locatio情報を追加 */
 			    crm_warn("Compatibility handling for failed op %s on %s",
 				     id, node->details->uname);
 			    resource_location(
@@ -1832,6 +1836,8 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 			}
 
 			if(rsc->role < RSC_ROLE_STARTED) {
+			/* roleがRSC_ROLE_UNKNOWN, RSC_ROLE_STOPPEDの場合(展開直後のリソースのroleはSTOPPPED) */
+			/* は、リソースはACTIVE状態(SLAVEもしくはSTARTED)でセット */
 			    set_active(rsc);
 			}
 
@@ -1847,6 +1853,9 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 			}
 
 			if(action->fail_role == RSC_ROLE_STOPPED) {
+				/* on-fail="fence"でstonithが設定されていない場合 */
+				/* on-fail="stop"の場合は、リソースが全ノードでもう起動出来ないように、*/
+				/* このリソースの配置可能ノード情報の全てのノード情報のweightに-INFINITYをセットする */
 				crm_err("Making sure %s doesn't come up again", rsc->id);
 				/* make sure it doesnt come up again */
 				pe_free_shallow_adv(rsc->allowed_nodes, TRUE);
