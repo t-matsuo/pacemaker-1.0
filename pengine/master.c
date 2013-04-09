@@ -29,7 +29,7 @@
 extern gint sort_clone_instance(gconstpointer a, gconstpointer b);
 
 extern int master_score(resource_t *rsc, node_t *node, int not_set_value);
-
+/* 子リソースのPromote制約を追加する */
 static void
 child_promoting_constraints(
 	clone_variant_data_t *clone_data, enum pe_ordering type,
@@ -65,7 +65,7 @@ child_promoting_constraints(
 		crm_debug_4("Un-ordered version");
 	}
 }
-
+/* 子リソースのDemote制約を追加する */
 static void
 child_demoting_constraints(
 	clone_variant_data_t *clone_data, enum pe_ordering type,
@@ -137,18 +137,21 @@ master_update_pseudo_status(
 		);
 
 }
-
+/* apply_master_locationマクロ */
 #define apply_master_location(list)					\
+	/* 対象リストの全てのlocation情報を処理する */
 	slist_iter(							\
 		cons, rsc_to_node_t, list, lpc2,			\
 		cons_node = NULL;					\
 		if(cons->role_filter == RSC_ROLE_MASTER) {		\
 			crm_debug_2("Applying %s to %s",			\
 				  cons->id, child_rsc->id);		\
+			/* location情報にrole:Masterが付いている場合は、location情報のノードリストからchosenノードを検索する */
 			cons_node = pe_find_node_id(			\
 				cons->node_list_rh, chosen->details->id); \
 		}							\
 		if(cons_node != NULL) {					\
+			/* chosenノードがlocation情報に存在した場合は、子リソースのpriorityにlocation情報のノードのweightを加算する */
 			int new_priority = merge_weights(		\
 				child_rsc->priority, cons_node->weight); \
 			crm_debug_2("\t%s: %d->%d (%d)", child_rsc->id,	\
@@ -162,7 +165,7 @@ can_be_master(resource_t *rsc)
 {
 	node_t *node = NULL;
 	node_t *local_node = NULL;
-	resource_t *parent = uber_parent(rsc);
+	resource_t *parent = uber_parent(rsc);	/* 親リソース情報を取りだす */
 	clone_variant_data_t *clone_data = NULL;
 	int level = LOG_DEBUG_2;
 #if 0
@@ -182,7 +185,7 @@ can_be_master(resource_t *rsc)
 		}
 		);
 	}
-	/* リソースのノード情報を取得する */
+	/* リソースの配置先情報(allocated_to)を取得する */
 	node = rsc->fns->location(rsc, NULL, FALSE);
 	if(node == NULL) {
 		/* ノード情報が取れない場合はNULLを返す */
@@ -238,7 +241,7 @@ can_be_master(resource_t *rsc)
 	/* NULLを返す */
 	return NULL;
 }
-
+/* 子リソースのソート処理 */
 static gint sort_master_instance(gconstpointer a, gconstpointer b)
 {
 	int rc;
@@ -253,22 +256,22 @@ static gint sort_master_instance(gconstpointer a, gconstpointer b)
 
 	role1 = resource1->fns->state(resource1, TRUE);
 	role2 = resource2->fns->state(resource2, TRUE);
-	
+	/* sort_indexでa,bをソートする */
 	rc = sort_rsc_index(a, b);
 	if( rc != 0 ) {
 		return rc;
 	}
-	
+	/* 同じsort_indexの場合はroleで比較してソートする */
 	if(role1 > role2) {
 		return -1;
 
 	} else if(role1 < role2) {
 		return 1;
 	}
-	
+	/* role比較も同じなら、sort_clone_instance()処理でソート */
 	return sort_clone_instance(a, b);
 }
-
+/* Promote順決定処理 */
 static void master_promotion_order(resource_t *rsc) 
 {
     node_t *node = NULL;
@@ -293,7 +296,7 @@ static void master_promotion_order(resource_t *rsc)
 	/* 全ての子リソースを処理する */
     slist_iter(
 	child, resource_t, rsc->children, lpc,
-
+	/* 子リソースの配置先情報(allocated_to)が決定していれば取り出す */
 	chosen = child->fns->location(child, NULL, FALSE);
 	if(chosen == NULL || child->sort_index < 0) {
 		/* 配置先がNULLまたは、sort_indexが0未満のリソース情報をダンプして処理しない */
@@ -348,30 +351,36 @@ static void master_promotion_order(resource_t *rsc)
     dump_node_scores(LOG_DEBUG_3, rsc, "After", rsc->allowed_nodes);
 
     /* write them back and sort */
+    /* すべての子リソースを処理する */
     slist_iter(
 	child, resource_t, rsc->children, lpc,
-
+	/* 子リソースの配置先情報(allocated_to)が決定していれば取り出す */
 	chosen = child->fns->location(child, NULL, FALSE);
 	if(is_not_set(child->flags, pe_rsc_managed) && child->next_role == RSC_ROLE_MASTER) {
+	    /* 子リソースがunmangedリソースで、次の遷移がMASTERならsort_indexにINFINITYをセットする */
+	    /* --- unmanagedリソースのMASTER状態を保持(ただし、next_roleはMASTERでセットされている必要あり) --- */
 	    child->sort_index = INFINITY;
 
 	} else if(chosen == NULL || child->sort_index < 0) {
+		/* 配置先が決定していないか、sort_indexが0以下(Promote不可)ならログ出力 */
 	    crm_debug_2("%s: %d", child->id, child->sort_index);
 
 	} else {
+		/* managedリソースで配置先が決定している場合は、リソースの配置可能なノード情報から配置先ノードを検索する */
 	    node = (node_t*)pe_find_node_id(
 		rsc->allowed_nodes, chosen->details->id);
 	    CRM_ASSERT(node != NULL);
-
+		/* 配置可能なノード情報のweightをsort_indexにセットする */
 	    child->sort_index = node->weight;
 	}
 	crm_debug_2("%s: %d", child->id, child->sort_index);
 	);
-	/* 子リソースを処理順にソートする */
+	/* 子リソースを処理順にソートする(sort_indexが最優先) */
+	/* --- これによって、colorでのPromote時にsort_indexの高い子リソースからPromoteされる */
     rsc->children = g_list_sort(rsc->children, sort_master_instance);
     clear_bit(rsc->flags, pe_rsc_merging);
 }
-
+/* master属性値の適用処理 */
 int
 master_score(resource_t *rsc, node_t *node, int not_set_value)
 {
@@ -379,7 +388,7 @@ master_score(resource_t *rsc, node_t *node, int not_set_value)
 	char *name = rsc->id;
 	const char *attr_value;
 	int score = not_set_value, len = 0;
-
+	/* 子リソースがある場合は全ての子リソースでmaster_scoreを実行して、返却値の合計を返す */
 	if(rsc->children) {
 	    slist_iter(
 		child, resource_t, rsc->children, lpc,
@@ -400,19 +409,23 @@ master_score(resource_t *rsc, node_t *node, int not_set_value)
 	    }
 
 	} else {
+		/* リソースの実行ノードリストと状態ノードリストから対象ノードを検索する *//
 	    node_t *match = pe_find_node_id(rsc->running_on, node->details->id);
 	    node_t *known = pe_find_node_id(rsc->known_on, node->details->id);
 	    if (match == NULL && known == NULL) {
+			/* 実行中でなくて、状態がわからない場合はsoreを返却 */
 		crm_debug_2("%s is not active on %s - ignoring",
 			    rsc->id, node->details->uname);
 		return score;
 	    }
-	    
+	    /* リソースの配置可能なノード情報から対象ノードを検索する */
 	    match = pe_find_node_id(rsc->allowed_nodes, node->details->id);
 	    if(match == NULL) {
+			/* 配置可能なノードではない場合は、scoreを返却 */
 		return score;
 		
 	    } else if(match->weight < 0) {
+			/* 配置不可なノードの場合(weight<0)も、scoreを返却 */
 		crm_debug_2("%s on %s has score: %d - ignoring",
 			    rsc->id, match->details->uname, match->weight);
 		return score;
@@ -425,7 +438,7 @@ master_score(resource_t *rsc, node_t *node, int not_set_value)
 	     */
 	    name = rsc->clone_name;
 	}
-
+	/* 対象ノードの属性からこのリソースのmasterスコアがあれば取り出す */
 	len = 8 + strlen(name);
 	crm_malloc0(attr_name, len);
 	sprintf(attr_name, "master-%s", name);
@@ -435,10 +448,12 @@ master_score(resource_t *rsc, node_t *node, int not_set_value)
 		    rsc->id, attr_name, node->details->uname, crm_str(attr_value));
 
 	if(attr_value != NULL) {
+		/* masterスコアがあればそれを返却値にセットする */
 	    score = char2score(attr_value);
 	}
 
 	crm_free(attr_name);
+	/* score値を返却 */
 	return score;
 }
 
@@ -540,7 +555,7 @@ static void set_role_master(resource_t *rsc)
 node_t *
 master_color(resource_t *rsc, pe_working_set_t *data_set)
 {
-	int promoted = 0;
+	int promoted = 0;	/* Promoteした子リソース数のカウンタ */
 	node_t *chosen = NULL;
 	node_t *cons_node = NULL;
 	enum rsc_role_e next_role = RSC_ROLE_UNKNOWN;
@@ -612,25 +627,31 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 				 * but prevents anyone from being promoted if
 				 * neither a constraint nor a master-score is present
 				 */
+				 /* master属性値の適用処理 */
+				 /* 次の遷移がSTARTEDかUNKNOWNの場合のpriorityを決定する */
+				 /* crm_masterなどによる(masterスコア)がノード属性にある場合はその値も反映 */
 				child_rsc->priority = master_score(child_rsc, chosen, -1);
 				break;
 
 			case RSC_ROLE_SLAVE:
 			case RSC_ROLE_STOPPED:
+				/* 次の遷移がSLAVEかSTOPなら、Promoteさせないようにpriorityに-INFINITYをセットする */
 				child_rsc->priority = -INFINITY;
 				break;
 			case RSC_ROLE_MASTER:
 				/* We will arrive here if we're re-creating actions after a stonith
 				 *  OR target-role is set
 				 */
+				/* 次の遷移がMASTERなら何もしない */
 				break;
 			default:
 				CRM_CHECK(FALSE/* unhandled */,
 					  crm_err("Unknown resource role: %d for %s",
 						  next_role, child_rsc->id));
 		}
-
+		/* 子リソースのlocation情報を処理する(適用可能なlocation情報をpriorityに加算) */
 		apply_master_location(child_rsc->rsc_location);
+		/* 親リソースのlocation情報を処理する(適用可能なlocation情報をpriorityに加算) */
 		apply_master_location(rsc->rsc_location);
 		/* 子リソースのrsc指定の全てのcolocation情報を処理する */
 		/* 注意：この時点では、子リソースのnext_roleが決定していない場合もあり(起動直後のSlave状態でMaster昇格前など) */
@@ -653,6 +674,7 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 	    );
 
 	dump_node_scores(LOG_DEBUG_3, rsc, "Pre merge", rsc->allowed_nodes);
+	/* Promote順(sort_indexでもソートされる)を決定する */
 	master_promotion_order(rsc);
 
 	/* mark the first N as masters */
@@ -660,7 +682,7 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 	/* よって、sort_indexの大きな子リソースからPromoteされることになる */
 	slist_iter(
 		child_rsc, resource_t, rsc->children, lpc,
-
+		/* 子リソースの配置先情報(allocated_to)が決定していれば取り出してログ出力する */
 		chosen = child_rsc->fns->location(child_rsc, NULL, FALSE);
 		if(show_scores) {
 		    fprintf(stdout, "%s promotion score on %s: %d\n",
@@ -680,14 +702,14 @@ master_color(resource_t *rsc, pe_working_set_t *data_set)
 		    
 		} else if(promoted < clone_data->master_max || is_not_set(rsc->flags, pe_rsc_managed)) {
 			/* promotedカウント(Master状態数がmaster_max以下か、リソースのpe_rsc_managedがセットされていない場合(UNMANAGEDリソースの場合 */
-			/* master可能かチェックする */
+			/* この子リソースの子リソースも含めてmasterにPromote可能かチェックする */
 			chosen = can_be_master(child_rsc);
 		}
 
 		crm_debug("%s master score: %d", child_rsc->id, child_rsc->priority);
 		
 		if(chosen == NULL) {
-			/* chosenが未セットの場合は、Slave状態をセットして次の子リソースを処理する */
+			/* chosenが未セット(Promote出来ない)の場合は、Slave状態をセットして次の子リソースを処理する */
 		    set_role_slave(child_rsc, FALSE);
 		    continue;
 		}

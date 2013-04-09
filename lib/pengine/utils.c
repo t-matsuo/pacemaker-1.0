@@ -404,6 +404,7 @@ void dump_node_scores(int level, resource_t *rsc, const char *comment, GListPtr 
     }
 }
 
+/* 2つのリソース情報をsort_indexでソートする */
 gint sort_rsc_index(gconstpointer a, gconstpointer b)
 {
 	const resource_t *resource1 = (const resource_t*)a;
@@ -420,10 +421,10 @@ gint sort_rsc_index(gconstpointer a, gconstpointer b)
 	if(resource1->sort_index < resource2->sort_index) {
 		return 1;
 	}
-
+	/* 同じsort_indexの場合は、0 */
 	return 0;
 }
-
+/* 2つのリソース情報をpriorityでソートする */
 gint sort_rsc_priority(gconstpointer a, gconstpointer b)
 {
 	const resource_t *resource1 = (const resource_t*)a;
@@ -440,7 +441,7 @@ gint sort_rsc_priority(gconstpointer a, gconstpointer b)
 	if(resource1->priority < resource2->priority) {
 		return 1;
 	}
-
+	/* 同じpriorityの場合は、0 */
 	return 0;
 }
 

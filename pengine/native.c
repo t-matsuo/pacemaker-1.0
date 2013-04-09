@@ -727,6 +727,7 @@ void native_create_actions(resource_t *rsc, pe_working_set_t *data_set)
 	chosen = rsc->allocated_to;
 	if(chosen != NULL && rsc->next_role == RSC_ROLE_UNKNOWN) {
 	    /* 配置先ノードが決定していて、リソースのnext_roleがUNKNOWNの場合は、next_roleをSTARTEDにセット */
+	    /* -- 通常、展開直後（故障など発生していない)で起動していないリソースはnext_roleはUNKNOWNである -- */
 	    rsc->next_role = RSC_ROLE_STARTED;
 	} else if(rsc->next_role == RSC_ROLE_UNKNOWN) {
 		/* 上記以外の場合は、next_roleをSTOPPEDにセット */

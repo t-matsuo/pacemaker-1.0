@@ -1450,8 +1450,10 @@ static void set_active(resource_t *rsc)
 {
     resource_t *top = uber_parent(rsc);
     if(top && top->variant == pe_master) {
+		/* Master/Slaveリソースの場合は、対象リソースのroleをSLAVEにセット */
 	rsc->role = RSC_ROLE_SLAVE;
     } else {
+		/* その他のリソースの場合は、対象リソースのroleをSTARTEDにセット */
 	rsc->role = RSC_ROLE_STARTED;
     }
 }
@@ -1720,7 +1722,7 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 	}
 	
 	switch(task_status_i) {
-		case LRM_OP_PENDING:
+		case LRM_OP_PENDING: /* ペンディングオペレーションの場合 */
 			if(safe_str_eq(task, CRMD_ACTION_START)) {
 				set_bit(rsc->flags, pe_rsc_start_pending);
 				set_active(rsc);
@@ -1730,7 +1732,7 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 			}
 			break;
 		
-		case LRM_OP_DONE:
+		case LRM_OP_DONE:	/* 正常終了オペレーションの場合 */
 			crm_debug_3("%s/%s completed on %s",
 				    rsc->id, task, node->details->uname);
 
@@ -1738,22 +1740,29 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 				clear_past_failure = TRUE;
 
 			} else if(safe_str_eq(task, CRMD_ACTION_START)) {
+				/* startがDONEしている場合は現在のroleをSTARTEDにセット */
 				rsc->role = RSC_ROLE_STARTED;
 				clear_past_failure = TRUE;
 				
 			} else if(safe_str_eq(task, CRMD_ACTION_STOP)) {
+				/* stopがDONEしている場合は現在のroleをSTOPPPEDDにセット */
 				rsc->role = RSC_ROLE_STOPPED;				
 				clear_past_failure = TRUE;
 
 			} else if(safe_str_eq(task, CRMD_ACTION_PROMOTE)) {
+				/* promoteがDONEしている場合は現在のroleをMASTERにセット */
 				rsc->role = RSC_ROLE_MASTER;
 				clear_past_failure = TRUE;
 
 			} else if(safe_str_eq(task, CRMD_ACTION_DEMOTE)) {
+				/* demoteがDONEしている場合は現在のroleをSLAVEにセット */
 				/* Demote from Master does not clear an error */
 				rsc->role = RSC_ROLE_SLAVE;
 				
 			} else if(rsc->role < RSC_ROLE_STARTED) {
+				/* monitorがDONEしている場合が該当 */
+				/* で、roleが	RSC_ROLE_UNKNOWN, RSC_ROLE_STOPPEDの場合(展開直後のリソースのroleはSTOPPPED) */
+				/* は、リソースはACTIVE状態(SLAVEもしくはSTARTED)でセット */
 				crm_debug_3("%s active on %s",
 					    rsc->id, node->details->uname);
 				set_active(rsc);
@@ -1780,7 +1789,7 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 			}
 			break;
 
-		case LRM_OP_ERROR:
+		case LRM_OP_ERROR:			/* エラー、タイムアウト、NOTSUPPPORTED 終了オペレーションの場合 */
 		case LRM_OP_TIMEOUT:
 		case LRM_OP_NOTSUPPORTED:
 			crm_warn("Processing failed op %s on %s: %s (%d)",
@@ -1788,6 +1797,7 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 				 execra_code2string(actual_rc_i), actual_rc_i);
 			crm_xml_add(xml_op, XML_ATTR_UNAME, node->details->uname);
 			if ((node->details->shutdown == FALSE) || (node->details->online == TRUE)) {
+				/* 故障情報に故障操作を追加セット(crm_monなどではこの故障情報を表示) */
 			    add_node_copy(data_set->failed, xml_op);
 			}
 
@@ -1796,6 +1806,7 @@ unpack_rsc_op(resource_t *rsc, node_t *node, xmlNode *xml_op,
 			}
 
 			if(safe_str_eq(task, CRMD_ACTION_STOP)) {
+				/* 故障リソースの配置不可(-INFINITY)内部locatio情報を追加 */
 			    resource_location(
 				rsc, node, -INFINITY, "__stop_fail__", data_set);
 			    
