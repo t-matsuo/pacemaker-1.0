@@ -412,6 +412,7 @@ common_unpack(xmlNode * xml_obj, resource_t **rsc,
 	}
 	
 	if(is_set(data_set->flags, pe_flag_symmetric_cluster)) {
+		/* *** 通常のnativeリソースはここで、allowed_nodesが全ノード分スコア０で作成されることになる ***/
 		/* pe_flag_symmetric_clusterフラグがセットされている場合(デフォルトでセット) */
 		/* リソースの配置ノード情報(allowed_nodes)にノード情報を追加し、ノード情報の重み(weight)にスコア０を加算 */
 		resource_location(*rsc, NULL, 0, "symmetric_default", data_set);
