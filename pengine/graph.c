@@ -67,9 +67,10 @@ static gboolean any_possible(resource_t *rsc, const char *task) {
     }
     return FALSE;
 }
-
+/* 対象リソースのアクションから最初指定したアクションを検索 */
 static action_t *first_required(resource_t *rsc, const char *task) {
     if(rsc && rsc->children) {
+		/* 子リソースがある場合は全ての子リソースのアクションを検索する */
 	slist_iter(child, resource_t, rsc->children, lpc,
 		   action_t *op = first_required(child, task);
 		   if(op) {
@@ -78,12 +79,15 @@ static action_t *first_required(resource_t *rsc, const char *task) {
 	    );
 	
     } else if(rsc) {
+		/* リソースの全てのアクションを検索する */
 	slist_iter(op, action_t, rsc->actions, lpc,
 		   if(task && safe_str_neq(op->task, task)) {
+		   		/* 一致しないアクションは処理しない */
 		       continue;
 		   }
 		   
 		   if(op->optional == FALSE) {
+				/* 一致したアクションで、optionalがFALSEの場合は見つかったアクション情報を返す */
 		       return op;
 		   }
 	    );	
@@ -104,7 +108,7 @@ update_action(action_t *action)
 		   action->optional?"optional":"required",
 		   action->runnable?"runnable":"unrunnable",
 		   action->pseudo?"pseudo":action->task);
-	
+	/* 対象アクションのbefore(前実行)アクションリストを全て処理する */
 	slist_iter(
 		other, action_wrapper_t, action->actions_before, lpc,
 
