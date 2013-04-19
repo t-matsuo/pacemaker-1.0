@@ -1096,9 +1096,10 @@ stage6(pe_working_set_t *data_set)
 
 		stonith_op = NULL;
 		if(node->details->unclean && need_stonith) {
+			/* UNCLEANなノードでstonithが有効な場合はWARNログを出力 */
 			pe_warn("Scheduling Node %s for STONITH",
 				 node->details->uname);
-
+			/* stotnithのfenceアクションを生成し、パラメータをセットする */
 			stonith_op = custom_action(
 				NULL, crm_strdup(CRM_OP_FENCE),
 				CRM_OP_FENCE, node, FALSE, TRUE, data_set);
@@ -1114,7 +1115,7 @@ stage6(pe_working_set_t *data_set)
 			add_hash_param(
 				stonith_op->meta, "stonith_action",
 				data_set->stonith_action);
-			
+			/* stonithアクションの制約と、orderを生成する */
 			stonith_constraints(node, stonith_op, data_set);
 			order_actions(ready, stonith_op, pe_order_implies_left);
 			order_actions(stonith_op, all_stopped, pe_order_implies_right);
@@ -1131,6 +1132,7 @@ stage6(pe_working_set_t *data_set)
 			}
 
 		} else if(node->details->online && node->details->shutdown) {			
+			/* ノードがONLINEでSHUTDOWNになる場合 */
 			action_t *down_op = NULL;	
 			crm_info("Scheduling Node %s for shutdown",
 				 node->details->uname);
@@ -1143,17 +1145,21 @@ stage6(pe_working_set_t *data_set)
 			add_hash_param(down_op->meta, XML_ATTR_TE_NOWAIT, XML_BOOLEAN_TRUE);
 
 			if(node->details->is_dc) {
+				/* SHUTDOWNになるノードがDCノードの場合 */
 				dc_down = down_op;
 			}
 		}
 
 		if(node->details->unclean && stonith_op == NULL) {
+			/* 対象ノードがuncleanなのに、STONITHアクションが生成されなかった場合は、フラグセット */
 			integrity_lost = TRUE;
 			pe_warn("Node %s is unclean!", node->details->uname);
 		}
 		);
 
 	if(integrity_lost) {
+		/* 対象ノードがuncleanなのに、STONITHアクションが生成されなかった場合 */
+		/* uncleanノードが残ったままの状態のログ出力 */
 	    if(is_set(data_set->flags, pe_flag_stonith_enabled) == FALSE) {
 		pe_warn("YOUR RESOURCES ARE NOW LIKELY COMPROMISED");
 		pe_err("ENABLE STONITH TO KEEP YOUR RESOURCES SAFE");
@@ -1165,37 +1171,45 @@ stage6(pe_working_set_t *data_set)
 	}
 	
 	if(dc_down != NULL) {
+		/* DCノードがSHUTDOWNになる場合 */
+		/* 状態遷移作業エリアのアクション情報リストからdo_shutdownアクションのリストを取得する */
 		GListPtr shutdown_matches = find_actions(
 			data_set->actions, CRM_OP_SHUTDOWN, NULL);
 		crm_debug_2("Ordering shutdowns before %s on %s (DC)",
 			dc_down->task, dc_down->node->details->uname);
-
+		/* 対象となったアクション(STOONITH,SHUDOWN)のmeta情報をセットする */
 		add_hash_param(dc_down->meta, XML_ATTR_TE_NOWAIT, XML_BOOLEAN_TRUE);
-		
+		/* アクション情報リストから取り出した全てのdo_shutdownアクションを処理する */
 		slist_iter(
 			node_stop, action_t, shutdown_matches, lpc,
 			if(node_stop->node->details->is_dc) {
+				/* ノードがDCノード(STONITH対象、SHUTDOWN対象）の場合は、処理しないで次を処理 */
 				continue;
 			}
 			crm_debug("Ordering shutdown on %s before %s on %s",
 				node_stop->node->details->uname,
 				dc_down->task, dc_down->node->details->uname);
-
+			/* do_shutdownアクションとDCノードのSTONITH,SHUDOWNのアクションのactions_after,actions_beforeを生成する */
 			order_actions(node_stop, dc_down, pe_order_implies_left);
 			);
 
 		if(last_stonith && dc_down != last_stonith) {
+			/* STONITHアクションが生成されて、DCノードのアクションと同一でない場合 */
+			/* 最後のSTONITHアクションとDCノードのSTONITH,SHUDOWNのアクションのactions_after,actions_beforeを生成する */
 			order_actions(last_stonith, dc_down, pe_order_implies_left);
 		}
 		g_list_free(shutdown_matches);
 	}
 
 	if(last_stonith) {
+		/* STONITHアクションが生成されている場合 */
+		/* 最後のSTONITHアクションとdone(STONITH_DONE)のアクションのactions_after,actions_beforeを生成する */
 	    order_actions(last_stonith, done, pe_order_implies_right);
 
 	} else if(dc_fence) {
 	    order_actions(dc_down, done, pe_order_implies_right);
 	}
+	/* ready(STONITH_UP)アクションとdone(STONITH_DONE)のアクションのactions_after,actions_beforeを生成する */
 	order_actions(ready, done, pe_order_optional);
 	return TRUE;
 }

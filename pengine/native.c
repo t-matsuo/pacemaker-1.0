@@ -1252,7 +1252,9 @@ void native_expand(resource_t *rsc, pe_working_set_t *data_set)
 	    );
 }
 
-
+/*
+	リソース操作のログ出力処理
+*/
 void
 LogActions(resource_t *rsc, pe_working_set_t *data_set)
 {
@@ -1261,32 +1263,37 @@ LogActions(resource_t *rsc, pe_working_set_t *data_set)
     gboolean moving = FALSE;
     
     if(rsc->children) {
+		/* 対象リソースが子リソースを持っている場合は、全ての子リソースを先に処理する */
 	slist_iter(
 	    child_rsc, resource_t, rsc->children, lpc,
 	    LogActions(child_rsc, data_set);
 	    );
 	return;
     }
-    
+    /* 配置先ノード情報を取得する */
     next = rsc->allocated_to;
     if(rsc->running_on) {
+		/* リソースの実行中リストがある場合は稼動中ノード情報を保存する */
 	current = rsc->running_on->data;
 	if(rsc->role == RSC_ROLE_STOPPED) {
 	    /*
 	     * This can occur when resources are being recovered
 	     * We fiddle with the current role in native_create_actions()
 	     */
+	    /* 現在のリソースのroleがSTOPPPEDで判定されていても、実行中リストがあれば、STARTEDでroleを変更する */
 	    rsc->role = RSC_ROLE_STARTED;
 	}
     }
 
     if(current == NULL && is_set(rsc->flags, pe_rsc_orphan)) {
 	/* Don't log stopped orphans */
+		/* 稼動中ノード情報がなくて、orphandedリソースは処理しない */
 	return;
     }
     
     if(is_not_set(rsc->flags, pe_rsc_managed)
        || (current == NULL && next == NULL)) {
+		/* unmanagedリソースか、稼動中ノード情報も、配置先ノード情報もNULLの場合は処理しない */
 	crm_notice("Leave   resource %s\t(%s%s)",
 		   rsc->id, role2text(rsc->role), is_not_set(rsc->flags, pe_rsc_managed)?" unmanaged":"");
 	return;
@@ -1294,10 +1301,12 @@ LogActions(resource_t *rsc, pe_working_set_t *data_set)
 
     if(current != NULL && next != NULL
        && safe_str_neq(current->details->id, next->details->id)) {
+		/* 稼動中ノード情報と配置先ノード情報が異なる場合は、移動フラグをセットする */
 	moving = TRUE;
     }
     
     if(rsc->role == rsc->next_role) {
+		/* roleが変わらない場合 */
 	action_t *start = NULL;
 	char *key = start_key(rsc);
 	GListPtr possible_matches = find_actions(rsc->actions, key, next);
@@ -1344,8 +1353,10 @@ LogActions(resource_t *rsc, pe_working_set_t *data_set)
     }
 
     if(rsc->role > RSC_ROLE_SLAVE && rsc->role > rsc->next_role) {
+		/* 現在のroleがSLAVE以上(MASTER)で、次のroleよりも現在のroleが大きい場合 */
 	CRM_CHECK(current != NULL,);
 	if(current != NULL) {
+		/* Demoteとなるので、リソースのDemoteのログを出力する */
 	    crm_notice("Demote  %s\t(%s -> %s %s)", rsc->id,
 		       role2text(rsc->role), role2text(rsc->next_role),
 		       current->details->uname);
@@ -1353,14 +1364,18 @@ LogActions(resource_t *rsc, pe_working_set_t *data_set)
     }
 
     if(rsc->next_role == RSC_ROLE_STOPPED || moving) {
+		/* 次のroleがSTOPPEDか、リソース移動の場合 */
 	CRM_CHECK(current != NULL,);
+		/* リソースの実行中リストの全てのノードでのリソースのStopログを出力する */
 	slist_iter(node, node_t, rsc->running_on, lpc,
 		   crm_notice("Stop    resource %s\t(%s)", rsc->id, node->details->uname));
     }
 
     if(rsc->role == RSC_ROLE_STOPPED || moving) {
+		/* 現在roleがSTOPPEDか、リソース移動の場合 */
 	CRM_CHECK(next != NULL,);
 	if(next != NULL) {
+		/* リソース移動先が決定している場合は、リソースのStartログを出力する */
 	    crm_notice("Start   %s\t(%s)", rsc->id, next->details->uname);
 	}
     }    
