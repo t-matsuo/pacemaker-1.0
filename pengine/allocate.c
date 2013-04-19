@@ -1800,6 +1800,9 @@ int transition_id = -1;
 /*
  * Create a dependency graph to send to the transitioner (via the CRMd)
  */
+/*
+	グラフ生成処理
+*/
 gboolean
 stage8(pe_working_set_t *data_set)
 {
@@ -1836,6 +1839,7 @@ stage8(pe_working_set_t *data_set)
 		   }
 		);
 */
+	/* すべてのリソースのアクションをgraphにセットする */
 	slist_iter(
 		rsc, resource_t, data_set->resources, lpc,
 
@@ -1847,6 +1851,7 @@ stage8(pe_working_set_t *data_set)
 
 	/* catch any non-resource specific actions */
 	crm_debug_4("processing non-resource actions");
+	/* リソースアクション以外のアクションをgraphにセットする */
 	slist_iter(
 		action, action_t, data_set->actions, lpc,
 
